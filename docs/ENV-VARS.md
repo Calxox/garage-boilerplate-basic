@@ -34,7 +34,13 @@ pnpm run env:sync       # also runs automatically before `pnpm run dev`
 | `NEXT_PUBLIC_APP_NAME` | No | Yes | App display name |
 | `CORS_ORIGIN` | No | No | Allowed CORS origin for the API (empty = deny all cross-origin) |
 | `PORT` | No | No | Local Functions dev server port (default `5001`) |
+| `COS_ENDPOINT` | No | Yes* | IBM Cloud Object Storage endpoint URL for your bucket's region |
+| `COS_API_KEY_ID` | **Yes** | Yes* | IBM Cloud IAM API key from the Object Storage service credential |
+| `COS_INSTANCE_CRN` | No | Yes* | Object Storage instance CRN (`serviceInstanceId`), from the same service credential |
+| `COS_BUCKET_NAME` | No | Yes* | Name of the bucket the backend reads/writes hazard imagery to |
 | `STITCH_API_KEY` | **Yes** | No | Google Stitch key for the Claude Code MCP (stays in root `.env` only) |
+
+\* Required only once a feature actually calls `lib/objectStorage.ts` — the backend still starts and every other route still works with these unset, same lazy-init reasoning as Firebase.
 
 `NEXT_PUBLIC_*` values are compiled into the browser bundle — that prefix must **never** appear on a secret (a Claude Code hook blocks this).
 
@@ -57,6 +63,40 @@ pnpm run env:sync       # also runs automatically before `pnpm run dev`
 5. Delete the JSON file — it now lives in the env var
 
 **Never commit the service account JSON or the base64 string to version control.**
+
+## Generating IBM Cloud Object Storage Credentials
+
+This project uses the IAM API key auth style (not HMAC):
+
+1. IBM Cloud console → your **Object Storage** instance (create one first if
+   it doesn't exist yet — "Create resource" → search "Object Storage")
+2. **Buckets** → create a bucket if you don't have one yet → copy its name
+   into `COS_BUCKET_NAME`
+3. On the bucket's **Configuration** tab (or the instance's **Endpoints**
+   page), copy the **public endpoint** for your bucket's region into
+   `COS_ENDPOINT` (e.g. `https://s3.au-syd.cloud-object-storage.appdomain.cloud`)
+4. Instance's left nav → **Service credentials** → **New credential**
+   - Leave **Include HMAC Credential** **unchecked** (this project reads the
+     IAM API key + instance CRN, not HMAC access/secret keys)
+   - **Add**, then **View credentials** on the new entry
+5. From the JSON shown, copy:
+   - `apikey` → `COS_API_KEY_ID`
+   - `resource_instance_id` → `COS_INSTANCE_CRN`
+6. Run `pnpm run env:sync` from the repo root, then verify the real
+   connection works:
+   ```bash
+   pnpm --filter backend run test:cos-connectivity
+   ```
+   This uploads a small test object to your real bucket, reads it back,
+   and deletes it — confirming the credentials actually work, not just
+   that they're filled in. See `backend/src/lib/objectStorage.ts` for the
+   client itself.
+
+**If your team generated HMAC credentials instead** (checked that box in
+step 4), the SDK config shape is different (`accessKeyId`/`secretAccessKey`
+rather than `apiKeyId`/`serviceInstanceId`) — flag this in the team channel
+before changing `lib/objectStorage.ts`, since it changes the auth code, not
+just the env values.
 
 ## Production Secrets (GitHub Actions)
 

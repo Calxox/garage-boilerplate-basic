@@ -19,11 +19,15 @@ backend/
 │   │   └── errorHandler.ts   Global error handler (RFC 9457 responses)
 │   └── lib/
 │       ├── firebase.ts       Admin SDK singleton (sole entry point)
+│       ├── objectStorage.ts  IBM Cloud Object Storage client (sole entry point)
 │       ├── errors.ts         HttpError — the single error type
 │       └── zodConverter.ts   Typed Firestore converter with schema versioning
+├── scripts/
+│   └── test-object-storage.ts  Real connectivity smoke test (not mocked — hits your actual bucket)
 └── tests/
-    ├── unit/                 supertest tests (mocked Firebase)
-    │   └── conventions.test.ts  Enforces the two backend rules in CI
+    ├── unit/                 supertest tests (mocked Firebase + Object Storage)
+    │   ├── conventions.test.ts     Enforces the two backend rules in CI
+    │   └── lib/objectStorage.test.ts
     └── setup.ts              Vitest setup + Firebase mocks
 ```
 
@@ -67,6 +71,31 @@ router.get('/:id', async (req, res, next) => {
 ```
 
 Available helpers: `HttpError.badRequest()`, `.unauthorized()`, `.forbidden()`, `.notFound()`, `.conflict()`, `.internal()`.
+
+## Object Storage
+
+`lib/objectStorage.ts` is the sole entry point for IBM Cloud Object Storage
+(same pattern as `lib/firebase.ts` for Firebase) — used for hazard imagery
+and detection data. Lazy singleton: importing it never throws, only calling
+`uploadObject`/`getObject`/`deleteObject` does, if `COS_*` env vars are
+unset. See `docs/ENV-VARS.md` for how to generate credentials.
+
+```typescript
+import { uploadObject, getObject } from '../lib/objectStorage'
+
+await uploadObject(`detections/${id}.jpg`, imageBuffer, 'image/jpeg')
+const image = await getObject(`detections/${id}.jpg`)
+```
+
+Unit tests (`tests/unit/lib/objectStorage.test.ts`) mock the SDK — they
+prove the module's logic, not real connectivity. For that, run:
+
+```bash
+pnpm --filter backend run test:cos-connectivity
+```
+
+which uploads, retrieves, and deletes a real test object against your
+actual bucket.
 
 ## Conventions (enforced in CI)
 
