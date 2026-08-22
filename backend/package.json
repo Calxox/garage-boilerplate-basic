@@ -14,7 +14,8 @@
     "test": "vitest run tests/unit",
     "test:watch": "vitest tests/unit",
     "test:coverage": "vitest run --coverage tests/unit",
-    "test:cos-connectivity": "tsx scripts/test-object-storage.ts"
+    "test:cos-connectivity": "tsx scripts/test-object-storage.ts",
+    "test:firebase-connectivity": "tsx scripts/test-firebase-connectivity.ts"
   },
   "engines": {
     "node": ">=22"
