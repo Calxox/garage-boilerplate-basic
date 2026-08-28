@@ -1,0 +1,29 @@
+# Dependencies
+node_modules
+**/node_modules
+frontend/node_modules
+backend/node_modules
+firebase/node_modules
+
+# Next.js builds
+.next
+**/.next
+
+# Other build output
+dist
+**/dist
+build
+**/build
+
+# Git
+.git
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Misc
+*.log
+.DS_Store
