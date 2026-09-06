@@ -92,6 +92,17 @@ const backendLines = [
   `COS_API_KEY_ID=${get('COS_API_KEY_ID')}`,
   `COS_INSTANCE_CRN=${get('COS_INSTANCE_CRN')}`,
   `COS_BUCKET_NAME=${get('COS_BUCKET_NAME')}`,
+  `CLOUDANT_URL=${get('CLOUDANT_URL')}`,
+  `CLOUDANT_APIKEY=${get('CLOUDANT_APIKEY')}`,
+  `CLOUDANT_USERNAME=${get('CLOUDANT_USERNAME')}`,
+  `APPID_API_KEY=${get('APPID_API_KEY')}`,
+  `APPID_SECRET=${get('APPID_SECRET')}`,
+  `APPID_MANAGEMENT_URL=${get('APPID_MANAGEMENT_URL')}`,
+  `APPID_SERVICE_ENDPOINT=${get('APPID_SERVICE_ENDPOINT')}`,
+  `WATSONX_AI_URL=${get('WATSONX_AI_URL')}`,
+  `WATSONX_AI_APIKEY=${get('WATSONX_AI_APIKEY')}`,
+  `WATSONX_AI_PROJECT_ID=${get('WATSONX_AI_PROJECT_ID')}`,
+  `WATSONX_AI_MODEL_ID=${get('WATSONX_AI_MODEL_ID')}`,
 ]
 
 fs.writeFileSync(path.join(root, 'frontend', '.env.local'), frontendLines.join('\n') + '\n')

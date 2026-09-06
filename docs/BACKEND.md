@@ -20,14 +20,19 @@ backend/
 │   └── lib/
 │       ├── firebase.ts       Admin SDK singleton (sole entry point)
 │       ├── objectStorage.ts  IBM Cloud Object Storage client (sole entry point)
+│       ├── cloudant.ts       IBM Cloudant client (sole entry point)
+│       ├── watsonx.ts        IBM watsonx.ai client (sole entry point)
 │       ├── errors.ts         HttpError — the single error type
 │       └── zodConverter.ts   Typed Firestore converter with schema versioning
 ├── scripts/
-│   └── test-object-storage.ts  Real connectivity smoke test (not mocked — hits your actual bucket)
+│   ├── test-object-storage.ts        Real connectivity smoke test (not mocked — hits your actual bucket)
+│   ├── test-cloudant-connectivity.ts Real connectivity smoke test (not mocked — hits your actual instance)
+│   └── test-watsonx-connectivity.ts  Real connectivity smoke test (not mocked — hits your actual project)
 └── tests/
-    ├── unit/                 supertest tests (mocked Firebase + Object Storage)
+    ├── unit/                 supertest tests (mocked Firebase + Object Storage + watsonx.ai)
     │   ├── conventions.test.ts     Enforces the two backend rules in CI
-    │   └── lib/objectStorage.test.ts
+    │   ├── lib/objectStorage.test.ts
+    │   └── lib/watsonx.test.ts
     └── setup.ts              Vitest setup + Firebase mocks
 ```
 
@@ -96,6 +101,30 @@ pnpm --filter backend run test:cos-connectivity
 
 which uploads, retrieves, and deletes a real test object against your
 actual bucket.
+
+## watsonx.ai
+
+`lib/watsonx.ts` is the sole entry point for IBM watsonx.ai — used for
+foundation-model text generation. Lazy singleton: importing it never
+throws, only calling `generateText`/`listFoundationModelIds` does, if
+`WATSONX_AI_*` env vars are unset. See `docs/ENV-VARS.md` for how to
+generate credentials.
+
+```typescript
+import { generateText } from '../lib/watsonx'
+
+const summary = await generateText(`Summarize: ${reportText}`)
+```
+
+Unit tests (`tests/unit/lib/watsonx.test.ts`) mock the SDK — they prove
+the module's logic, not real connectivity. For that, run:
+
+```bash
+pnpm --filter backend run test:watsonx-connectivity
+```
+
+which lists available foundation models and runs one real text-generation
+call against your actual watsonx.ai project.
 
 ## Conventions (enforced in CI)
 

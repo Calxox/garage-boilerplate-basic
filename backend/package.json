@@ -15,18 +15,23 @@
     "test:watch": "vitest tests/unit",
     "test:coverage": "vitest run --coverage tests/unit",
     "test:cos-connectivity": "tsx scripts/test-object-storage.ts",
-    "test:firebase-connectivity": "tsx scripts/test-firebase-connectivity.ts"
+    "test:firebase-connectivity": "tsx scripts/test-firebase-connectivity.ts",
+    "test:cloudant-connectivity": "tsx scripts/test-cloudant-connectivity.ts",
+    "test:watsonx-connectivity": "tsx scripts/test-watsonx-connectivity.ts"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@ibm-cloud/cloudant": "^0.12.24",
+    "@ibm-cloud/watsonx-ai": "^1.7.16",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.1",
     "firebase-admin": "^13.3.0",
     "firebase-functions": "^6.4.0",
     "helmet": "^8.1.0",
+    "ibm-cloud-sdk-core": "^5.6.0",
     "ibm-cos-sdk": "^1.15.0",
     "zod": "^3.24.0"
   },
