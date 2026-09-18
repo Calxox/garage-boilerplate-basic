@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import { AuthProvider } from './AuthProvider'
 import { Toaster } from 'sonner'
 
@@ -9,10 +10,19 @@ import { Toaster } from 'sonner'
  * Import this in the root layout only.
  */
 export function Providers({ children }: { children: ReactNode }) {
-  return (
-    <AuthProvider>
+  const pathname = usePathname()
+  const content = (
+    <>
       {children}
       <Toaster richColors position="top-right" />
-    </AuthProvider>
+    </>
+  )
+
+  if (pathname === '/') {
+    return content
+  }
+
+  return (
+    <AuthProvider>{content}</AuthProvider>
   )
 }
