@@ -1,0 +1,7 @@
+# Training dependencies. Only needed on the machine that trains the model
+# (Colab / Kaggle / a local box) - never in the deployed container.
+-r requirements.txt
+
+torch>=2.0
+onnx>=1.15
+onnx2torch>=1.5   # loads the ImageNet-pretrained MobileNetV2 ONNX as a trainable module

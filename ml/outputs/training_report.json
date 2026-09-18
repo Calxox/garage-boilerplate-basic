@@ -1,0 +1,44 @@
+{
+  "classes": [
+    "fire",
+    "nofire"
+  ],
+  "counts": {
+    "fire": 110,
+    "nofire": 541
+  },
+  "split": {
+    "train": 457,
+    "val": 97,
+    "test": 97
+  },
+  "test_metrics": {
+    "accuracy": 0.9690721649484536,
+    "macro_f1": 0.9452286843591191,
+    "per_class": [
+      {
+        "precision": 0.8823529411764706,
+        "recall": 0.9375,
+        "f1": 0.9090909090909091,
+        "support": 16
+      },
+      {
+        "precision": 0.9875,
+        "recall": 0.9753086419753086,
+        "f1": 0.9813664596273292,
+        "support": 81
+      }
+    ],
+    "confusion": [
+      [
+        15,
+        1
+      ],
+      [
+        2,
+        79
+      ]
+    ]
+  },
+  "onnx_size_mb": 8.86
+}

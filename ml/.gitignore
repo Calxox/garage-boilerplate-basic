@@ -1,0 +1,13 @@
+# Training data - fetch with `python src/prepare_data.py`
+data/
+
+# Model binaries - these live in IBM Cloud Object Storage, not git.
+# Regenerate locally with src/train.py, or download from the bucket.
+*.onnx
+*.pt
+*.pth
+
+# Local artifacts
+__pycache__/
+*.pyc
+outputs/train.log
