@@ -22,22 +22,22 @@ training data needs to be swapped when the severity-graded data lands.
 Trained on 651 images (110 fire / 541 no-fire), stratified 70/15/15 split.
 Numbers below are on the 97-image **held-out test set**, never seen in training.
 
-| Metric | Value |
-|---|---|
+| Metric   | Value     |
+| -------- | --------- |
 | Accuracy | **96.9%** |
 | Macro F1 | **0.945** |
 
-| Class | Precision | Recall | F1 | n |
-|---|---|---|---|---|
-| fire | 0.882 | 0.938 | 0.909 | 16 |
-| nofire | 0.988 | 0.975 | 0.981 | 81 |
+| Class  | Precision | Recall | F1    | n   |
+| ------ | --------- | ------ | ----- | --- |
+| fire   | 0.882     | 0.938  | 0.909 | 16  |
+| nofire | 0.988     | 0.975  | 0.981 | 81  |
 
 Confusion matrix (rows = true, cols = predicted):
 
-|  | fire | nofire |
-|---|---|---|
-| **fire** | 15 | 1 |
-| **nofire** | 2 | 79 |
+|            | fire | nofire |
+| ---------- | ---- | ------ |
+| **fire**   | 15   | 1      |
+| **nofire** | 2    | 79     |
 
 15 of 16 fires caught, 1 missed, 2 false alarms.
 
@@ -48,11 +48,11 @@ accuracy alone would hide that completely.
 
 **Measured inference cost (CPU, no GPU):**
 
-| Workload | Time |
-|---|---|
-| Single image | ~11 ms |
+| Workload                      | Time    |
+| ----------------------------- | ------- |
+| Single image                  | ~11 ms  |
 | 12 s video (6 frames sampled) | ~0.13 s |
-| Exported ONNX model size | 8.9 MB |
+| Exported ONNX model size      | 8.9 MB  |
 
 The exported ONNX was verified against the PyTorch model on the same inputs —
 maximum probability difference `1.4e-07`, so serving matches training exactly.
@@ -106,7 +106,7 @@ and deploy.
   only — no torch, no CUDA.
 
 Training still uses a GPU where one is available (Colab/Kaggle, free). GPU is a
-*training* requirement, not a *serving* one — those are separate machines.
+_training_ requirement, not a _serving_ one — those are separate machines.
 
 ## Layout
 

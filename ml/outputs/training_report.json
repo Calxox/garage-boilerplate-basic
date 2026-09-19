@@ -1,8 +1,5 @@
 {
-  "classes": [
-    "fire",
-    "nofire"
-  ],
+  "classes": ["fire", "nofire"],
   "counts": {
     "fire": 110,
     "nofire": 541
@@ -30,14 +27,8 @@
       }
     ],
     "confusion": [
-      [
-        15,
-        1
-      ],
-      [
-        2,
-        79
-      ]
+      [15, 1],
+      [2, 79]
     ]
   },
   "onnx_size_mb": 8.86
