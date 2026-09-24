@@ -1,0 +1,9 @@
+data/
+outputs/
+docs/
+samples/
+**/__pycache__/
+*.pt
+models/efficientnet*
+models/mobilenetv2_imagenet.onnx
+models/hazard_classifier_effb0.onnx

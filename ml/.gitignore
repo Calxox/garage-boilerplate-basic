@@ -1,13 +1,18 @@
 # Training data - fetch with `python src/prepare_data.py`
 data/
 
-# Model binaries - these live in IBM Cloud Object Storage, not git.
-# Regenerate locally with src/train.py, or download from the bucket.
-*.onnx
+# Training checkpoints and experiment artifacts stay out of git.
 *.pt
 *.pth
+models/mobilenetv2_imagenet.onnx
+models/efficientnet_lite4_imagenet.onnx
+models/hazard_classifier_effb0.onnx
 
-# Local artifacts
+# The served model IS committed: Code Engine builds from source, so the image
+# build needs it present in the repo. It is 8.9MB.
+!models/hazard_classifier.onnx
+!models/classes.json
+
 __pycache__/
 *.pyc
-outputs/train.log
+outputs/train*.log
