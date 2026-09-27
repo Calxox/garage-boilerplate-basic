@@ -1,37 +1,14 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import styles from "./login.module.css";
+import type { Metadata } from 'next'
+import { HazardWorkspace } from '@/features/hazardwatch/components/HazardWorkspace'
+import '@/features/hazardwatch/hazardwatch.css'
 
 export const metadata: Metadata = {
-  title: "Home",
-  description: "Welcome to the app",
-};
+  title: 'HazardWatch',
+  description:
+    'Review bushfire evidence, explore locations and submit imagery in the HazardWatch frontend demo.',
+  icons: { icon: '/prototype/assets/hazard-watch-logo.png' },
+}
 
-export default function LandingPage() {
-  return (
-    <main className={styles.page}>
-      <div className={styles.leftSide}>
-        <div className={styles.content}>
-          <h1>
-            {process.env.NEXT_PUBLIC_APP_NAME ?? "App"}
-          </h1>
-
-          <p>
-            Placeholder text
-          </p>
-        </div>
-      </div>
-
-      <div className={styles.rightSide}>
-        <p className={styles.text}>Login</p>
-        <Link href="/auth/signin" className={styles.signIn}>
-          Sign in
-        </Link>
-        <p className={styles.text}>Create account</p>
-        <Link href="/auth/signup" className={styles.signUp}>
-          Create account
-        </Link>
-      </div>
-    </main>
-  );
+export default function HomePage() {
+  return <HazardWorkspace />
 }

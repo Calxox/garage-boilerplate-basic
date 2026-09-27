@@ -1,0 +1,185 @@
+{
+  "method": "Actual Chromium webpage screenshots of the fully local prototype",
+  "captures": [
+    {
+      "file": "hazardwatch-desktop.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#overview",
+      "title": "Overview · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:05:55.473Z",
+      "sha256": "b14b3a87847cfb8f19ca7d69c6ca4d5dfa294c416827da2572f1874ee4056ffe"
+    },
+    {
+      "file": "hazardwatch-map.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#map",
+      "title": "Hazard map · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:05:55.620Z",
+      "sha256": "b721491540e2c360185e28521eeb18de63d2a34884f1cc05a5e813611a4495bd"
+    },
+    {
+      "file": "hazardwatch-map-new-zealand.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#map",
+      "title": "Hazard map · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:05:55.831Z",
+      "sha256": "10d6bdf322d367e8f6fa7a3ae7ed42c970885495522f57adc27f3365d07940bc"
+    },
+    {
+      "file": "hazardwatch-map-area-selection.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#map",
+      "title": "Hazard map · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:05:56.160Z",
+      "sha256": "fb425cd3885a53819ed9d2cf82fdef285e5b1c7cdc80e1a6dca21345c559564d"
+    },
+    {
+      "file": "hazardwatch-assessment.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#hazard",
+      "title": "Hazard assessment · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:01:55.380Z",
+      "sha256": "2835ebefd64243ccdb2f9a4856d5b7163185fd04a219d97bf70fc4ae519d1983"
+    },
+    {
+      "file": "hazardwatch-assistant.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#assistant",
+      "title": "Ask HazardWatch · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:01:59.677Z",
+      "sha256": "3ee59a00256d99913f29b2085c6f01beea55523abb9d9de8cf6bd4f75f88c49e"
+    },
+    {
+      "file": "hazardwatch-reports.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#reports",
+      "title": "Image reports · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:01:59.769Z",
+      "sha256": "4b818277e86dd812010d638571b3a45fc0352791bf1722b73a41c7223101025c"
+    },
+    {
+      "file": "hazardwatch-upload-choose.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#reports",
+      "title": "Image reports · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": false,
+      "capturedAt": "2026-09-16T01:02:22.300Z",
+      "sha256": "e04b4d867ce8443c8bff7b5595dccca98b6205aec5f1ac857e980923122dcd44"
+    },
+    {
+      "file": "hazardwatch-upload-context.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#reports",
+      "title": "Image reports · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": false,
+      "capturedAt": "2026-09-16T01:02:22.626Z",
+      "sha256": "d70023c49d4d0eb56776738d144490e3bd0f80c94723d006a1a5f7dc41bea941"
+    },
+    {
+      "file": "hazardwatch-upload.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#reports",
+      "title": "Image reports · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": false,
+      "capturedAt": "2026-09-16T01:02:22.878Z",
+      "sha256": "e05b9af83d55f89f46b1a3f007f5bb9d8e444b6be189eba881a0cd00cbd177d1"
+    },
+    {
+      "file": "hazardwatch-upload-success.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz#reports",
+      "title": "Image reports · HazardWatch prototype",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "fullPage": false,
+      "capturedAt": "2026-09-16T01:02:23.107Z",
+      "sha256": "dfa7a829ebb6be17b4844e151f793086b0d0572826a68a0027d2db43e99a3410"
+    },
+    {
+      "file": "hazardwatch-tablet.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#overview",
+      "title": "Overview · HazardWatch prototype",
+      "viewport": {
+        "width": 834,
+        "height": 1112
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:05:56.403Z",
+      "sha256": "e3a8d60f9476f285d715040b5b60cc823b40d8c37e3cc924838efd5869cfc993"
+    },
+    {
+      "file": "hazardwatch-mobile.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#overview",
+      "title": "Overview · HazardWatch prototype",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "fullPage": true,
+      "capturedAt": "2026-09-16T01:05:56.556Z",
+      "sha256": "43c17fbb2788084152c45e640fb80859dcc0cde3e3f5072ad657aeaaf0b975db"
+    },
+    {
+      "file": "hazardwatch-mobile-upload.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#overview",
+      "title": "Overview · HazardWatch prototype",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "fullPage": false,
+      "capturedAt": "2026-09-16T01:05:56.713Z",
+      "sha256": "e590b82487ca0f7a3af3ee6c3e39b48f99b0fc893eb0a2249c70060b316f7caf"
+    },
+    {
+      "file": "hazardwatch-mobile-success.png",
+      "url": "http://127.0.0.1:4173/?revision=offline-anz-final#overview",
+      "title": "Overview · HazardWatch prototype",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "fullPage": false,
+      "capturedAt": "2026-09-16T01:05:56.846Z",
+      "sha256": "46a46d3ebd28723a5c8e6516418e960853cad47abfed9cb3e3c0463d5a4aeea2"
+    }
+  ]
+}
