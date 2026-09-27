@@ -54,3 +54,4 @@
 .area-status [hidden]{display:none}
 .country-map-label{color:#536852;text-align:center;font-size:12px;letter-spacing:1px;font-weight:600;white-space:nowrap}
 .place-map-label{border:0;background:#f9fbf6dd;box-shadow:none;color:#586754;padding:1px 4px;font-size:10px;pointer-events:none}.place-map-label:before{display:none}
+.brand>img{object-fit:contain;transform:scale(1.725);flex-shrink:0}

@@ -26,7 +26,7 @@ assert.equal(escape('<img onerror="x">'), '&lt;img onerror=&quot;x&quot;&gt;');
 for (const question of ['Why is Katoomba first?', 'Show smoke', 'Show high severity', 'Compare locations']) {
   for (const id of answerQuestion(question, incidents).refs) assert(incidents.some(i => i.id === id));
 }
-for (const file of ['index.html', 'style.css', 'app.js', 'model.js', 'assets/mark.svg', 'map.js', 'assets/geography.js', 'assets/leaflet/leaflet.js', 'assets/leaflet/leaflet.css', 'assets/leaflet/LICENSE.txt', 'assets/bushfire-screenshot.png', 'assets/bushfire-source.webp', 'assets/image-provenance.json']) {
+for (const file of ['index.html', 'style.css', 'app.js', 'model.js', 'assets/hazard-watch-logo.png', 'map.js', 'assets/geography.js', 'assets/leaflet/leaflet.js', 'assets/leaflet/leaflet.css', 'assets/leaflet/LICENSE.txt', 'assets/bushfire-screenshot.png', 'assets/bushfire-source.webp', 'assets/image-provenance.json']) {
   assert(fs.statSync(path.join(__dirname, file)).size > 0, file + ' must exist');
 }
 const app = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
