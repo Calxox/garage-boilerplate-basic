@@ -76,7 +76,7 @@
     markerLayer.clearLayers();
     const items = context.items.filter(item => map.getBounds().contains([item.lat,item.lng]));
     if (map.getZoom() < 10 && items.length) {
-      const level = items.some(i=>i.severity==='High') ? 'high' : items[0].severity.toLowerCase();
+      const level = items.some(i=>i.severity==='Extreme') ? 'extreme' : items.some(i=>i.severity==='High') ? 'high' : items[0].severity.toLowerCase();
       const marker = root.L.marker([-33.68,150.31], {icon:root.L.divIcon({className:'hazard-marker cluster-marker ' + level,html:'<span>' + items.length + '</span>',iconSize:[44,44]}),title:'Blue Mountains · ' + items.length + ' report locations',alt:'Open Blue Mountains report locations'});
       marker.on('click',()=>fitPreset('blue')).addTo(markerLayer);
       marker.bindTooltip('Blue Mountains · ' + items.length + ' locations',{direction:'top'});

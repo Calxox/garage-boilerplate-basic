@@ -1,8 +1,13 @@
 'use client'
 
 import { ArrowLeft, Check, ImageOff, MessageSquare } from 'lucide-react'
-import { sampleImage, type Incident } from '@/features/hazardwatch/model'
-import { ScreenHeader, SeverityBadge } from './ui'
+import {
+  featureScoresDescending,
+  formatFeatureLabel,
+  sampleImage,
+  type Incident,
+} from '@/features/hazardwatch/model'
+import { ScreenHeader, SeverityBadge, RichText } from './ui'
 
 export function ClassificationResult({
   incident,
@@ -13,6 +18,9 @@ export function ClassificationResult({
   onReview: () => void
   onAsk: () => void
 }) {
+  const featureRows = featureScoresDescending(incident.keyFeatureScores)
+  const explainability = incident.explainability || incident.reason
+
   return (
     <>
       <a href="#map" className="hw-back">
@@ -27,8 +35,8 @@ export function ClassificationResult({
           {incident.photo ? (
             <img
               className="hw-evidence-image"
-              src={sampleImage}
-              alt="Flames among trees in the reference photograph"
+              src={incident.photo.startsWith('blob:') || incident.photo.startsWith('/') ? incident.photo : sampleImage}
+              alt={`Evidence for ${incident.name}`}
             />
           ) : (
             <div className="hw-missing-image">
@@ -67,30 +75,38 @@ export function ClassificationResult({
         </section>
         <section className="hw-panel hw-panel-body" aria-labelledby="hw-classification-title">
           <div className="hw-section-heading">
-            <h2 id="hw-classification-title">Sample classification</h2>
+            <h2 id="hw-classification-title">Classification</h2>
             <SeverityBadge severity={incident.severity} />
           </div>
           <p className="hw-classification">{incident.hazard}</p>
           <dl className="hw-result-stats">
             <div>
-              <dt>Sample confidence</dt>
+              <dt>Severity confidence</dt>
               <dd>{incident.confidence}%</dd>
             </div>
-            <div>
-              <dt>Illustrative area</dt>
-              <dd>
-                {incident.hectares}
-                {incident.hectares !== '—' && <small> ha</small>}
-              </dd>
-            </div>
           </dl>
-          <p className="hw-muted">Prewritten demonstration values, not measured results.</p>
+          {featureRows.length > 0 && (
+            <div className="hw-feature-scores">
+              <h3>Key feature confidences</h3>
+              <dl className="hw-feature-score-list">
+                {featureRows.map(([key, pct]) => (
+                  <div key={key}>
+                    <dt>{formatFeatureLabel(key)}</dt>
+                    <dd>{Math.round(pct)}%</dd>
+                  </div>
+                ))}
+              </dl>
+              {incident.quality === 'Video sample' && (
+                <p className="hw-note">
+                  For video, each score is the mean feature confidence across sampled frames.
+                </p>
+              )}
+            </div>
+          )}
           <h3>Why this needs attention</h3>
-          <p>{incident.reason}</p>
-          <div className="hw-uncertainty">
-            <h3>What remains uncertain</h3>
-            <p>{incident.uncertainty}</p>
-          </div>
+          <p className="hw-explainability">
+            <RichText text={explainability} />
+          </p>
           <div className="hw-stack">
             <button
               className={`hw-button ${incident.reviewed ? 'hw-secondary' : ''}`}
@@ -107,8 +123,10 @@ export function ClassificationResult({
           <details className="hw-details">
             <summary>How to interpret severity</summary>
             <p>
-              High: visible flames in the sample. Moderate: smoke requiring confirmation. Low:
-              ambiguous evidence requiring verification. Low does not mean safe.
+              None: no clear bushfire hazard in the assessment. Low: ambiguous evidence requiring
+              verification. Moderate: smoke or indirect signs needing confirmation. High: strong
+              flame or smoke signals. Extreme: severe, active fire indicators across multiple
+              features. Low does not mean safe.
             </p>
           </details>
         </section>

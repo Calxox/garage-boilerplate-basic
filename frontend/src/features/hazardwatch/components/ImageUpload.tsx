@@ -3,15 +3,29 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ImagePlus } from 'lucide-react'
 import {
+  assessMedia,
+  featureScoresAsPercent,
+  sourceToModality,
+  toUiSeverity,
+} from '@/features/hazardwatch/api'
+import {
   demoTime,
   reportSchema,
   sampleImage,
   sources,
-  validateImage,
+  validateMedia,
+  type MediaAssessment,
   type Report,
   type ReportContext,
 } from '@/features/hazardwatch/model'
-import { Modal, SeverityBadge } from './ui'
+import { Modal, SeverityBadge, RichText } from './ui'
+
+function hazardLabel(severity: MediaAssessment['severity'], features: string[]): string {
+  if (severity === 'None') return 'No bushfire detected'
+  if (features.includes('actual_flames')) return 'Active bushfire'
+  if (features.some((f) => f.includes('smoke'))) return 'Smoke detected'
+  return 'Bushfire indicators'
+}
 
 export function ImageUpload({
   onClose,
@@ -24,18 +38,22 @@ export function ImageUpload({
 }) {
   const [step, setStep] = useState(1)
   const [preview, setPreview] = useState('')
+  const [mediaType, setMediaType] = useState<'image' | 'video'>('image')
   const [fileName, setFileName] = useState('')
   const [reading, setReading] = useState(false)
+  const [assessing, setAssessing] = useState(false)
   const [error, setError] = useState('')
   const [reportId, setReportId] = useState('')
+  const [assessment, setAssessment] = useState<MediaAssessment | null>(null)
   const [context, setContext] = useState<ReportContext>({
     location: '',
     date: '2026-09-14T14:28',
-    source: 'User upload',
+    source: 'Ground/Citizen',
     notes: '',
   })
   const selection = useRef(0)
   const currentUrl = useRef('')
+  const mediaFile = useRef<File | null>(null)
   const submitted = useRef(false)
   const stepHeading = useRef<HTMLHeadingElement>(null)
 
@@ -62,7 +80,7 @@ export function ImageUpload({
   async function chooseFile(file?: File) {
     if (!file) return
     const version = ++selection.current
-    const problem = validateImage(file)
+    const problem = validateMedia(file)
     if (problem) {
       setError(problem)
       setReading(false)
@@ -71,6 +89,17 @@ export function ImageUpload({
     setReading(true)
     setError('')
     const url = URL.createObjectURL(file)
+    const isVideo = file.type.startsWith('video/')
+    if (isVideo) {
+      if (version !== selection.current) {
+        URL.revokeObjectURL(url)
+        return
+      }
+      mediaFile.current = file
+      setMediaType('video')
+      replacePreview(url, file.name)
+      return
+    }
     try {
       const image = new Image()
       image.src = url
@@ -79,6 +108,8 @@ export function ImageUpload({
         URL.revokeObjectURL(url)
         return
       }
+      mediaFile.current = file
+      setMediaType('image')
       replacePreview(url, file.name)
     } catch {
       URL.revokeObjectURL(url)
@@ -89,11 +120,65 @@ export function ImageUpload({
     }
   }
 
+  async function runAssessment() {
+    if (submitted.current || assessing) return
+    const file = mediaFile.current
+    if (!file && !preview.startsWith('/')) {
+      setError('Choose an image or video first.')
+      return
+    }
+    setAssessing(true)
+    setError('')
+    try {
+      let upload = file
+      if (!upload && preview === sampleImage) {
+        const res = await fetch(sampleImage)
+        const blob = await res.blob()
+        upload = new File([blob], 'example-bushfire.jpg', { type: blob.type || 'image/jpeg' })
+      }
+      if (!upload) throw new Error('No media file available to assess.')
+
+      const result = await assessMedia(upload, mediaType, sourceToModality(context.source))
+      const uiSeverity = toUiSeverity(result.severity)
+      const scores = featureScoresAsPercent(result.key_feature_scores || {})
+      const next: MediaAssessment = {
+        severity: uiSeverity,
+        confidence: Math.round(result.severity_confidence * 1000) / 10,
+        hazard: hazardLabel(uiSeverity, result.key_features || []),
+        keyFeatures: result.key_features || [],
+        keyFeatureScores: scores,
+        explainability:
+          result.explainability_note ||
+          `Based on the provided ${result.input_type}, severity is **${result.severity}** with **${Math.round(result.severity_confidence * 1000) / 10}%** confidence.`,
+        modality: result.modality || sourceToModality(context.source),
+        inputType: result.input_type,
+        framesSampled: result.frames_sampled ?? undefined,
+        durationSec: result.duration_sec ?? undefined,
+      }
+      submitted.current = true
+      setAssessment(next)
+      setReportId(
+        onSubmit({
+          ...context,
+          preview,
+          mediaType,
+          assessment: next,
+        })
+      )
+      setStep(4)
+    } catch (err) {
+      submitted.current = false
+      setError(err instanceof Error ? err.message : 'Assessment failed.')
+    } finally {
+      setAssessing(false)
+    }
+  }
+
   return (
-    <Modal title={step === 4 ? 'Report added' : 'Submit an image'} onClose={onClose}>
+    <Modal title={step === 4 ? 'Assessment complete' : 'Submit media'} onClose={onClose}>
       {step < 4 && (
         <ol className="hw-steps" aria-label="Submission progress">
-          {['Image', 'Context', 'Review'].map((label, index) => (
+          {['Media', 'Context', 'Review'].map((label, index) => (
             <li key={label} aria-current={step === index + 1 ? 'step' : undefined}>
               <span>{step > index + 1 ? <Check size={14} /> : index + 1}</span>
               {label}
@@ -108,7 +193,7 @@ export function ImageUpload({
               'Choose your evidence',
               'Add location and time',
               'Check your report',
-              'Ready for human assessment',
+              'Assessment ready',
             ][step - 1]
           }
         </h3>
@@ -117,7 +202,7 @@ export function ImageUpload({
             onSubmit={(event) => {
               event.preventDefault()
               if (!preview) {
-                setError('Choose an image or use the example to continue.')
+                setError('Choose an image/video or use the example to continue.')
                 return
               }
               setError('')
@@ -133,22 +218,26 @@ export function ImageUpload({
               }}
             >
               {preview ? (
-                <img src={preview} alt="Selected evidence preview" />
+                mediaType === 'video' ? (
+                  <video src={preview} controls playsInline />
+                ) : (
+                  <img src={preview} alt="Selected evidence preview" />
+                )
               ) : (
                 <>
                   <ImagePlus size={32} />
-                  <p>Choose or drop an image</p>
+                  <p>Choose or drop an image/video</p>
                 </>
               )}
-              <label htmlFor="hw-image">{preview ? 'Change image' : 'Choose an image'}</label>
+              <label htmlFor="hw-image">{preview ? 'Change media' : 'Choose media'}</label>
               <input
                 id="hw-image"
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
                 onChange={(event) => void chooseFile(event.target.files?.[0])}
                 aria-describedby="hw-image-help hw-upload-error"
               />
-              <small id="hw-image-help">JPG, PNG or WebP · Up to 10 MB</small>
+              <small id="hw-image-help">JPG, PNG, WebP, MP4, WebM or MOV · Up to 25 MB</small>
             </div>
             {fileName && <p className="hw-muted hw-file-name">{fileName}</p>}
             <button
@@ -156,14 +245,16 @@ export function ImageUpload({
               className="hw-text-button"
               onClick={() => {
                 selection.current++
+                mediaFile.current = null
+                setMediaType('image')
                 replacePreview(sampleImage, 'Example bushfire image')
               }}
             >
               Use example image
             </button>
-            {reading && <p role="status">Reading image…</p>}
+            {reading && <p role="status">Reading media…</p>}
             <p className="hw-note">
-              Images stay in this browser session. Nothing is uploaded or analysed.
+              Media is sent to the local vision service for severity assessment when you confirm.
             </p>
             <p id="hw-upload-error" className="hw-error" role="alert">
               {error}
@@ -221,7 +312,7 @@ export function ImageUpload({
                 <small id="hw-date-help">Demo clock: 14 Sep 2026, 14:32 AEST.</small>
               </div>
               <div className="hw-field">
-                <label htmlFor="hw-source">Image source</label>
+                <label htmlFor="hw-source">Media source</label>
                 <select
                   id="hw-source"
                   value={context.source}
@@ -271,35 +362,40 @@ export function ImageUpload({
         )}
         {step === 3 && (
           <>
-            <ReportPreview report={{ ...context, preview, id: '' }} />
+            <ReportPreview report={{ ...context, preview, id: '', mediaType }} />
             <p className="hw-note">
-              This adds a local report marked Unassessed. No classification or map marker is
-              generated.
+              Confirming runs the multitask vision model and attaches severity, key-feature
+              confidences, and an explainability briefing.
+            </p>
+            <p className="hw-error" role="alert">
+              {error}
             </p>
             <div className="hw-actions">
-              <button className="hw-button hw-secondary" onClick={() => setStep(2)}>
+              <button
+                className="hw-button hw-secondary"
+                disabled={assessing}
+                onClick={() => setStep(2)}
+              >
                 Back
               </button>
-              <button
-                className="hw-button"
-                onClick={() => {
-                  if (submitted.current) return
-                  submitted.current = true
-                  setReportId(onSubmit({ ...context, preview }))
-                  setStep(4)
-                }}
-              >
-                Add demo report
+              <button className="hw-button" disabled={assessing} onClick={() => void runAssessment()}>
+                {assessing
+                  ? mediaType === 'video'
+                    ? 'Assessing video…'
+                    : 'Assessing image…'
+                  : 'Assess severity'}
               </button>
             </div>
           </>
         )}
-        {step === 4 && (
+        {step === 4 && assessment && (
           <div className="hw-success">
             <Check size={36} />
             <strong>{reportId}</strong>
-            <SeverityBadge severity="Unassessed" />
-            <p>Your image and context are in the report register.</p>
+            <SeverityBadge severity={assessment.severity} />
+            <p>
+              {assessment.hazard} · {assessment.confidence}% confidence
+            </p>
             <p className="hw-muted">Refreshing or resetting clears this session report.</p>
             <button className="hw-button" onClick={onViewReport}>
               View my report
@@ -312,17 +408,36 @@ export function ImageUpload({
 }
 
 export function ReportPreview({ report }: { report: Report }) {
+  const assessment = report.assessment
   return (
     <div className="hw-report-preview">
-      <img src={report.preview} alt={`Submitted evidence for ${report.location}`} />
+      {report.mediaType === 'video' ? (
+        <video src={report.preview} controls playsInline />
+      ) : (
+        <img src={report.preview} alt={`Submitted evidence for ${report.location}`} />
+      )}
       <div>
-        <SeverityBadge severity="Unassessed" />
+        <SeverityBadge severity={assessment?.severity ?? 'Unassessed'} />
         <h3>{report.location}</h3>
         <p>
           {report.id && `${report.id} · `}
           {report.source}
+          {report.mediaType === 'video' ? ' · video' : ' · image'}
         </p>
         <p>{report.date.replace('T', ' · ')} AEST</p>
+        {assessment && (
+          <>
+            <p>
+              {assessment.hazard} · {assessment.confidence}% confidence
+            </p>
+            {assessment.keyFeatures.length > 0 && (
+              <p className="hw-muted">Features: {assessment.keyFeatures.join(', ')}</p>
+            )}
+            <p className="hw-notes">
+              <RichText text={assessment.explainability} />
+            </p>
+          </>
+        )}
         {report.notes && <p className="hw-notes">{report.notes}</p>}
       </div>
     </div>

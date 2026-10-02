@@ -14,6 +14,7 @@ import {
   type SeverityFilter,
   type View,
 } from '@/features/hazardwatch/model'
+import { chatAboutAssessment, incidentToCard, incidentToSeverityJson } from '@/features/hazardwatch/api'
 import { HazardMap } from './HazardMap'
 import { ClassificationResult } from './ClassificationResult'
 import { ImageUpload, ReportPreview } from './ImageUpload'
@@ -50,7 +51,7 @@ const tour = [
   {
     view: 'reports',
     title: 'Add a field image',
-    text: 'Submit an image, add its context, and review the new unassessed report.',
+    text: 'Submit image/video evidence, add context, and review the new unassessed report.',
   },
 ] satisfies { view: View; title: string; text: string }[]
 
@@ -80,6 +81,7 @@ export function HazardWorkspace() {
   const [resetOpen, setResetOpen] = useState(false)
   const [resetKey, setResetKey] = useState(0)
   const [tourStep, setTourStep] = useState<number | null>(null)
+  const [chatBusy, setChatBusy] = useState(false)
   const nextReport = useRef(1)
   const objectUrls = useRef(new Set<string>())
   const main = useRef<HTMLElement>(null)
@@ -116,20 +118,83 @@ export function HazardWorkspace() {
     setVisibleIds(null)
     setResetKey((value) => value + 1)
   }
-  function ask(question: string) {
+  async function ask(question: string) {
     const text = question.trim().slice(0, 500)
-    if (!text) return
-    setMessages((current) => [
-      ...current,
-      { role: 'user', text },
-      { role: 'assistant', ...answerQuestion(text, incidents, selectedId) },
-    ])
+    if (!text || chatBusy) return
     navigate('assistant')
+    const current = incidents.find((item) => item.id === selectedId) ?? incidents[0]
+    const history = messages.map((m) => ({ role: m.role, content: m.text }))
+    const board = incidents.map(incidentToCard)
+    setMessages((prev) => [...prev, { role: 'user', text }])
+    setChatBusy(true)
+    try {
+      const severityJson = incidentToSeverityJson(current!)
+      const { reply, refs } = await chatAboutAssessment(
+        text,
+        severityJson,
+        history,
+        board,
+        current?.id
+      )
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: reply,
+          refs: refs.length ? refs : current ? [current.id] : [],
+        },
+      ])
+    } catch (err) {
+      const fallback = answerQuestion(text, incidents, selectedId)
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text:
+            err instanceof Error
+              ? `${fallback.text}\n\n_(Live chat unavailable: ${err.message})_`
+              : fallback.text,
+          refs: fallback.refs,
+          filter: fallback.filter,
+        },
+      ])
+    } finally {
+      setChatBusy(false)
+    }
   }
   function addReport(report: Omit<Report, 'id'>) {
     const id = `DEMO-${String(nextReport.current++).padStart(3, '0')}`
     if (report.preview.startsWith('blob:')) objectUrls.current.add(report.preview)
-    setReports((current) => [{ ...report, id }, ...current])
+    const withId = { ...report, id }
+    setReports((current) => [withId, ...current])
+
+    if (report.assessment) {
+      const a = report.assessment
+      const time = report.date.slice(11, 16)
+      const incident = {
+        id,
+        name: report.location,
+        area: report.location,
+        severity: a.severity,
+        hazard: a.hazard,
+        confidence: a.confidence,
+        images: a.inputType === 'video' ? a.framesSampled || 1 : 1,
+        time,
+        source: report.source,
+        lat: -33.72,
+        lng: 150.31,
+        hectares: '—',
+        quality: a.inputType === 'video' ? 'Video sample' : 'Uploaded',
+        reviewed: false,
+        photo: report.mediaType === 'image' ? report.preview : undefined,
+        reason: a.explainability,
+        context: report.notes || `${a.inputType} assessment via ${a.modality} modality.`,
+        explainability: a.explainability,
+        keyFeatureScores: a.keyFeatureScores,
+      }
+      setIncidents((current) => [incident, ...current])
+      setSelectedId(id)
+    }
     return id
   }
   function reset() {
@@ -306,7 +371,8 @@ export function HazardWorkspace() {
               <AssistantScreen
                 messages={messages}
                 items={incidents}
-                onAsk={ask}
+                busy={chatBusy}
+                onAsk={(q) => void ask(q)}
                 onInspect={inspect}
                 onClear={() => setMessages([])}
                 onFilter={(level) => {
@@ -358,7 +424,8 @@ export function HazardWorkspace() {
           onSubmit={addReport}
           onViewReport={() => {
             setUploadOpen(false)
-            navigate('reports')
+            if (selectedId.startsWith('DEMO-')) navigate('hazard')
+            else navigate('reports')
           }}
         />
       )}
@@ -367,8 +434,24 @@ export function HazardWorkspace() {
           <div className="hw-modal-body">
             <ReportPreview report={previewReport} />
             <p className="hw-note">
-              This local image has not been analysed or added to the hazard map.
+              {previewReport.assessment
+                ? 'Vision assessment attached. Open Hazard assessment to review key feature confidences.'
+                : 'This local media has not been analysed or added to the hazard map.'}
             </p>
+            {previewReport.assessment && (
+              <div className="hw-actions">
+                <button
+                  className="hw-button"
+                  onClick={() => {
+                    setSelectedId(previewReport.id)
+                    setPreviewReport(null)
+                    navigate('hazard')
+                  }}
+                >
+                  Open assessment
+                </button>
+              </div>
+            )}
           </div>
         </Modal>
       )}

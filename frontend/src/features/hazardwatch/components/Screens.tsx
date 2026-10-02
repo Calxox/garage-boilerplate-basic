@@ -12,7 +12,7 @@ import {
   type Severity,
   type SeverityFilter,
 } from '@/features/hazardwatch/model'
-import { ScreenHeader, SeverityBadge } from './ui'
+import { ScreenHeader, SeverityBadge, RichText } from './ui'
 
 export function PriorityList({
   items,
@@ -76,7 +76,9 @@ export function PriorityList({
       {selected && (
         <div className="hw-selection">
           <h3>{selected.name}</h3>
-          <p>{selected.reason}</p>
+          <p>
+            <RichText text={selected.explainability || selected.reason} />
+          </p>
           <button className="hw-text-button" onClick={() => onInspect(selected.id)}>
             Inspect evidence <ArrowRight size={16} />
           </button>
@@ -103,7 +105,7 @@ export function Overview({
 }) {
   const metrics = [
     ['Locations', items.length],
-    ['High severity', items.filter((item) => item.severity === 'High').length],
+    ['High + extreme', items.filter((item) => item.severity === 'High' || item.severity === 'Extreme').length],
     ['Awaiting review', items.filter((item) => !item.reviewed).length],
     ['Session reports', reportCount],
   ] as const
@@ -114,7 +116,7 @@ export function Overview({
         description="Find what needs attention, then review the evidence."
         action={
           <button className="hw-button" onClick={onUpload}>
-            <ImagePlus size={18} /> Submit an image
+            <ImagePlus size={18} /> Submit media
           </button>
         }
       />
@@ -141,8 +143,8 @@ export function Overview({
               <SeverityBadge severity="High" />
             </div>
             <p>
-              Review the highest-priority sample report, its supporting evidence and what remains
-              uncertain.
+              Review the highest-priority sample report, its key feature confidences, and the
+              HazardWatchAI explainability briefing.
             </p>
             <div className="hw-inline-actions">
               <button className="hw-button" onClick={() => onInspect('HW-0241')}>
@@ -176,7 +178,7 @@ export function ReportFilters({
   return (
     <div className="hw-filters">
       <div className="hw-filter-levels" role="group" aria-label="Filter by severity">
-        {(['All', 'High', 'Moderate', 'Low'] as const).map((level) => (
+        {(['All', 'Extreme', 'High', 'Moderate', 'Low', 'None'] as const).map((level) => (
           <button key={level} aria-pressed={severity === level} onClick={() => onSeverity(level)}>
             {level}
           </button>
@@ -216,14 +218,17 @@ export function ReportsScreen({
   onInspect: (id: string) => void
   onPreview: (report: Report) => void
 }) {
+  const sessionIds = new Set(reports.map((report) => report.id))
+  const sampleIncidents = incidents.filter((item) => !sessionIds.has(item.id))
+
   return (
     <>
       <ScreenHeader
-        title="Image reports"
+        title="Media reports"
         description="Keep evidence and its context together for review."
         action={
           <button className="hw-button" onClick={onUpload}>
-            <ImagePlus size={18} /> Submit an image
+            <ImagePlus size={18} /> Submit media
           </button>
         }
       />
@@ -231,8 +236,8 @@ export function ReportsScreen({
         <div className="hw-empty-submissions">
           <ImagePlus size={26} />
           <div>
-            <h2>No images added in this session</h2>
-            <p>Try submitting an image. The five sample reports are available below.</p>
+            <h2>No media added in this session</h2>
+            <p>Try submitting image/video evidence. The sample reports are available below.</p>
           </div>
           <button className="hw-button hw-secondary" onClick={onUpload}>
             Try a submission
@@ -263,24 +268,36 @@ export function ReportsScreen({
               <tr key={report.id}>
                 <td>
                   <strong>{report.location}</strong>
-                  <small>{report.id} · Added in this session</small>
+                  <small>
+                    {report.id} · Added in this session · {report.mediaType}
+                  </small>
                 </td>
                 <td>
                   {report.source}
                   <small>{report.date.replace('T', ' · ')} AEST</small>
                 </td>
                 <td>
-                  <SeverityBadge severity="Unassessed" />
+                  <SeverityBadge severity={report.assessment?.severity ?? 'Unassessed'} />
                 </td>
-                <td>Awaiting assessment</td>
                 <td>
-                  <button className="hw-text-button" onClick={() => onPreview(report)}>
-                    View report <ArrowRight size={15} />
-                  </button>
+                  {report.assessment
+                    ? `${report.assessment.hazard} · ${report.assessment.confidence}%`
+                    : 'Awaiting assessment'}
+                </td>
+                <td>
+                  {report.assessment ? (
+                    <button className="hw-text-button" onClick={() => onInspect(report.id)}>
+                      Inspect <ArrowRight size={15} />
+                    </button>
+                  ) : (
+                    <button className="hw-text-button" onClick={() => onPreview(report)}>
+                      View report <ArrowRight size={15} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
-            {incidents.map((item) => (
+            {sampleIncidents.map((item) => (
               <tr key={item.id}>
                 <td>
                   <strong>{item.name}</strong>
@@ -307,7 +324,7 @@ export function ReportsScreen({
         </table>
       </div>
       <p className="hw-note">
-        Session submissions remain unassessed and clear on refresh or reset.
+        Session assessments clear on refresh or reset. Sample reports remain below.
       </p>
     </>
   )
@@ -316,6 +333,7 @@ export function ReportsScreen({
 export function AssistantScreen({
   messages,
   items,
+  busy = false,
   onAsk,
   onInspect,
   onFilter,
@@ -323,6 +341,7 @@ export function AssistantScreen({
 }: {
   messages: Message[]
   items: Incident[]
+  busy?: boolean
   onAsk: (question: string) => void
   onInspect: (id: string) => void
   onFilter: (severity: Severity) => void
@@ -332,17 +351,17 @@ export function AssistantScreen({
   const log = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (log.current) log.current.scrollTop = log.current.scrollHeight
-  }, [messages])
+  }, [messages, busy])
   return (
     <>
       <ScreenHeader
         title="Ask HazardWatch"
-        description="Understand a priority and follow its supporting evidence."
+        description="Ask about severity and features, or rank / compare locations in the review queue."
       />
       <section className="hw-panel hw-chat">
         <div className="hw-chat-heading">
-          <span>Scripted demo responses</span>
-          <button className="hw-text-button" disabled={!messages.length} onClick={onClear}>
+          <span>HazardWatchAI · selected report + full review queue</span>
+          <button className="hw-text-button" disabled={!messages.length || busy} onClick={onClear}>
             Clear conversation
           </button>
         </div>
@@ -353,16 +372,21 @@ export function AssistantScreen({
           aria-label="Conversation"
           aria-live="polite"
         >
-          {!messages.length ? (
+          {!messages.length && !busy ? (
             <div className="hw-chat-empty">
               <h2>Start with a question.</h2>
-              <p>Explain a priority, compare two locations, or find reports by severity.</p>
+              <p>
+                Ask about the selected report, rank the review queue, explain why a location is
+                first, or compare two sites.
+              </p>
             </div>
           ) : (
             messages.map((message, index) => (
               <article key={index} className={`hw-message hw-message-${message.role}`}>
-                <strong>{message.role === 'user' ? 'You' : 'HazardWatch'}</strong>
-                <p>{message.text}</p>
+                <strong>{message.role === 'user' ? 'You' : 'HazardWatchAI'}</strong>
+                <p>
+                  <RichText text={message.text} />
+                </p>
                 {message.refs?.length ? (
                   <div className="hw-source-links">
                     {message.refs.map((id) => (
@@ -380,11 +404,17 @@ export function AssistantScreen({
               </article>
             ))
           )}
+          {busy && (
+            <article className="hw-message hw-message-assistant">
+              <strong>HazardWatchAI</strong>
+              <p role="status">Thinking…</p>
+            </article>
+          )}
         </div>
         <div className="hw-chat-composer">
           <div className="hw-prompts">
             {prompts.map((prompt) => (
-              <button key={prompt} onClick={() => onAsk(prompt)}>
+              <button key={prompt} disabled={busy} onClick={() => onAsk(prompt)}>
                 {prompt}
               </button>
             ))}
@@ -392,28 +422,35 @@ export function AssistantScreen({
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              if (question.trim()) {
+              if (question.trim() && !busy) {
                 onAsk(question.trim())
                 setQuestion('')
               }
             }}
           >
             <label htmlFor="hw-question" className="hw-sr-only">
-              Ask about sample evidence
+              Ask about the selected assessment
             </label>
             <input
               id="hw-question"
               maxLength={500}
               required
-              placeholder="Ask about a location or its priority…"
+              disabled={busy}
+              placeholder="Ask to rank, compare, or explain a priority…"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
             />
-            <button className="hw-button" aria-label="Send question" disabled={!question.trim()}>
+            <button
+              className="hw-button"
+              aria-label="Send question"
+              disabled={busy || !question.trim()}
+            >
               <Send size={18} />
             </button>
           </form>
-          <p className="hw-note">Prewritten sample answers. No connected AI service.</p>
+          <p className="hw-note">
+            Live HazardWatchAI replies via the vision service (watsonx when configured).
+          </p>
         </div>
       </section>
     </>

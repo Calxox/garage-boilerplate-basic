@@ -3,9 +3,11 @@
   --hw-muted: #5b695f;
   --hw-line: #dce2d8;
   --hw-paper: #f6f8f3;
+  --hw-extreme: #7a1224;
   --hw-high: #a93620;
   --hw-moderate: #856016;
   --hw-low: #536c43;
+  --hw-none: #5b636a;
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
   min-height: 100dvh;
@@ -383,6 +385,10 @@
   background: currentColor;
   flex-shrink: 0;
 }
+.hw-extreme {
+  color: var(--hw-extreme);
+  background: #f5e3e8;
+}
 .hw-high {
   color: var(--hw-high);
   background: #fbeee7;
@@ -395,9 +401,52 @@
   color: var(--hw-low);
   background: #edf2e4;
 }
+.hw-none {
+  color: var(--hw-none);
+  background: #edf0f2;
+}
 .hw-unassessed {
   color: #5b636a;
   background: #edf0f2;
+}
+.hw-feature-scores {
+  margin: 20px 0 24px;
+}
+.hw-feature-scores h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.hw-feature-score-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.hw-feature-score-list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hw-line);
+  border-radius: 8px;
+  background: #fafbf8;
+}
+.hw-feature-score-list dt {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+.hw-feature-score-list dd {
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+  color: var(--hw-ink);
+}
+.hw-explainability {
+  white-space: pre-wrap;
+  margin-bottom: 20px;
 }
 .hw-metrics {
   display: grid;
@@ -703,11 +752,17 @@
   font-weight: 700;
   box-shadow: 0 1px 7px #26342d45;
 }
+.hw-map .hazard-marker.extreme {
+  background: var(--hw-extreme);
+}
 .hw-map .hazard-marker.moderate {
   background: var(--hw-moderate);
 }
 .hw-map .hazard-marker.low {
   background: var(--hw-low);
+}
+.hw-map .hazard-marker.none {
+  background: var(--hw-none);
 }
 .hw-map .hazard-marker.reviewed:after {
   content: '✓';
@@ -1057,7 +1112,8 @@
   border-radius: 9px;
   background: #f6f9f0;
 }
-.hw-dropzone > img {
+.hw-dropzone > img,
+.hw-dropzone > video {
   max-height: 220px;
   width: 100%;
   object-fit: contain;
@@ -1108,7 +1164,8 @@
   display: grid;
   gap: 20px;
 }
-.hw-report-preview > img {
+.hw-report-preview > img,
+.hw-report-preview > video {
   width: 100%;
   max-height: 230px;
   object-fit: contain;
