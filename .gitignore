@@ -60,4 +60,5 @@ docs/BOILERPLATE-BENCHMARK.md
 docs/REPLICATION-LOG.md
 
 #Model
-.pt
+*.pt
+
