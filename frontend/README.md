@@ -7,39 +7,93 @@ pnpm install --frozen-lockfile
 pnpm --filter frontend dev --port 3001 --hostname 127.0.0.1
 ```
 
-Open http://127.0.0.1:3001. This starts the Next.js frontend in `frontend/`. The older standalone `prototype/` served on port 4173 is a separate baseline and does not show these React refinements.
+Open http://127.0.0.1:3001. This starts the Next.js frontend in `frontend/`. The workspace starts empty and shows uploaded reports after assessment and approval. Tours, reset controls, example uploads and fictional incidents have been removed.
 
-The root HazardWatch demo works without Firebase credentials. The boilerplate's protected routes still require their original backend and environment configuration; use the filtered frontend command above for this demo instead of the repository's environment-syncing `pnpm dev` command.
+The root HazardWatch workspace runs without Firebase credentials. Protected boilerplate routes still require their original backend/environment configuration; use the filtered frontend command above for this workspace.
+
+## Local metadata and assessment service
+
+In a second PowerShell terminal, from the repository root, create a local runtime if needed:
+
+```powershell
+python -m venv .tools/vision-location
+& '.\.tools\vision-location\Scripts\python.exe' -m pip install fastapi uvicorn python-multipart python-dotenv Pillow
+Set-Location vision-service
+& '..\.tools\vision-location\Scripts\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+This minimal runtime supports location metadata and the local chat fallback. It is already prepared on this checkout. No trained model is needed for `/v1/media/location`.
+
+Real image/video severity assessment additionally requires `vision-service/requirements.txt` and the trained `best_bushfire_multitask.pt` file. Stop the API before installing/restarting:
+
+```powershell
+# Run from the repository root:
+& '.\.tools\vision-location\Scripts\python.exe' -m pip install -r vision-service/requirements.txt
+# If weights are elsewhere, set their actual path before starting the API:
+# $env:MODEL_PATH = 'C:\actual\path\best_bushfire_multitask.pt'
+```
+
+The model file `best_bushfire_multitask.pt` is now present in the repository root. Startup looks for an existing file in this order: `MODEL_PATH`, repository root, repository parent, then `models/` inside the repository. Set an absolute `MODEL_PATH` yourself when using a different directory. A missing model still returns a clear error; no synthetic result is substituted. Full inference has not been exercised during path setup.
+
+Both `vision-service/app/main.py` and `chat.py` load configuration from repository `.env`, then parent `.env` for missing settings, followed by python-dotenv's default lookup. Existing process variables take precedence. Chat now resolves the repository root consistently with the API entry point. Configuration files and keys remain user-managed and were not opened or inspected during this setup.
+
+The listed requirements are installed in the local runtime, and PyTorch/torchvision native imports passed. The Watsonx SDK package is installed; credentials and live Watsonx calls were not checked. Restart the vision service after changing paths or configuration. The focused path check uses dummy model files and mocked dotenv calls only:
+
+```powershell
+Set-Location vision-service
+& '..\.tools\vision-location\Scripts\python.exe' -B -m unittest discover -s tests -p test_runtime_paths.py -v
+```
+
+The frontend API URL defaults to `http://localhost:8000`. If a different service URL is needed, set `NEXT_PUBLIC_VISION_API_URL` in the terminal before starting/building the frontend, or use the repository's root `.env` and `pnpm run env:sync`. The API reads root `.env` directly. Its default CORS origins permit localhost/127.0.0.1 on ports 3000/3001; set server-only `CORS_ORIGINS` to a comma-separated origin list for another preview origin.
+
+The chatbot service uses rules grounded in the supplied reports when Watsonx is not configured. Optional Watsonx settings remain server-only; live Watsonx inference has not been validated in this iteration. The frontend requires an approved assessment before questions can be sent. A service failure shows an availability error without inventing an answer.
+
+## Workflow
+
+1. **Submit media**: choose JPEG, PNG, WebP, MP4, WebM or MOV, up to 25 MB.
+2. **Add location and time**: explicitly confirm extracted GPS, select a full street-address match using **Find address**, choose a named-place suggestion, apply latitude/longitude, or request device location. Device location needs permission and may differ from the capture location. Time is entered in current Sydney AEST/AEDT.
+3. **Review report → Assess severity**: successful assessment creates a session report awaiting map approval.
+4. **View my report → Approve and add to map**: adds an eligible report at its confirmed coordinates. Removing approval keeps the report in the register.
+
+Place suggestions still use the map's offline towns/regions/named places. **Find address** adds online house-level lookup to the upload form; the map's **Find area** uses it when coordinates and offline place search do not resolve the query. Select the complete returned address to confirm its point. Numbered queries require a matching house number and street and never fall back to a suburb centre. Include a suburb or postcode to disambiguate similar addresses. The map covers the current Australia/New Zealand region. Outside-region coordinates cannot be approved for this map.
+
+Street lookup uses [Photon](https://github.com/komoot/photon#demo-server) and OpenStreetMap data, with no API key for modest usage. It runs only on explicit search, through the Next.js `/api/geocode` endpoint; typed addresses go to the lookup provider at that point. Coverage is incomplete and the public service has no availability guarantee. Missing addresses remain unresolved and the existing manual/GPS methods remain usable. Address points represent mapped buildings/address features, not surveyed or unit-level locations. Street-level basemap tiles were not added; the existing offline geography remains. The Blue Mountains map preset has been removed; the region remains searchable as a real place.
+
+Optional server-only `PHOTON_API_URL` can select a Photon-compatible `/api/` endpoint in root `.env`; run `pnpm run env:sync` and restart the frontend after changing it. Leave it blank for the default. Requests are bounded, have an 8-second provider timeout, and use a 100-query/10-minute in-memory cache plus one request per second per server process. Use a private service and shared rate limiting before expanding deployment beyond modest single-process use. Display [OpenStreetMap attribution](https://www.openstreetmap.org/copyright) when showing or distributing geocoded results.
+
+Image GPS supports JPEG/PNG/WebP EXIF. Video GPS supports selected static MP4/MOV QuickTime tags. Missing/unsupported metadata or service failure leaves manual location methods available. See [supported formats and samples](../vision-service/tests/fixtures/README.md).
 
 ## Screens and components
 
-`src/app/page.tsx` renders the client workspace in `src/features/hazardwatch/`. Hash navigation preserves session state between Overview, Hazard map, Hazard assessment, Image reports and Ask HazardWatch.
+`src/app/page.tsx` renders the client workspace in `src/features/hazardwatch/`. Hash navigation preserves session state between overview, map, assessment, media reports and assistant.
 
-- `components/HazardWorkspace.tsx`: navigation, session state, guided journey and reset.
-- `components/Screens.tsx`: overview, reusable review queue and filters, report register and assistant.
+- `components/HazardWorkspace.tsx`: navigation, empty initial state, reports/approval and conversation.
+- `components/Screens.tsx`: overview, review queue, filters, report register and assistant.
 - `components/HazardMap.tsx`: React lifecycle around the existing local Leaflet map.
-- `components/ImageUpload.tsx`: validated image/context/review flow and session report preview.
-- `components/ClassificationResult.tsx`: sample classification, evidence, uncertainty and review mark.
-- `components/ui.tsx`: screen heading, severity badge and native accessible dialog.
-- `model.ts`: types and context validation, reusing the existing sample data/query rules.
-- `hazardwatch.css`: scoped responsive styles. The supplied logo remains 15% larger than its initial replacement size.
+- `components/ImageUpload.tsx` and `LocationInput.tsx`: media/context/review, metadata confirmation, coordinates and location fallbacks.
+- `components/ClassificationResult.tsx`: assessment evidence, uncertainty and review mark, including video/date/source context.
+- `model.ts`, `location.ts`, `api.ts`: context/coordinate validation, report-to-map conversion and service calls.
+- `hazardwatch.css`: scoped responsive styles. The supplied logo retains the requested 15% enlargement.
 
-Existing shared error and empty-state components, dependencies and local map assets are reused. No new packages are required.
+Existing shared components, local map assets and installed frontend dependencies are reused.
 
-## Demo limits
+## Session limits
 
-The five incidents and classifications are fictional, prewritten examples. The reference photograph's actual location and capture time are unverified. Assistant replies use scripted rules, not an AI service. New images stay in browser memory and remain **Unassessed**: there is no remote upload, classification, geocoding of submissions or persistence.
+Only uploaded evidence and returned assessment results enter the report register and map. There are no preloaded incident records or reference photographs. Assessment results require the vision service/model; metadata never guesses a location from visible content.
 
-Navigating between screens keeps the current session. Finishing the guided tour only closes the tour. Refreshing the page or confirming **Reset demo** clears reports, review marks and conversation. Reset also restores map/filter state. Stopping the server does not clear an already-open page until it reloads.
+Reports, approval, review marks, media blob previews and conversation stay in browser memory. Navigation preserves them; reloading clears them and returns to an empty workspace. Stopping the server does not clear an already-open page until reload. There is no database persistence or shared reviewer approval.
 
-## Checks
+The old standalone files were removed from `frontend/public/prototype/`, including their dummy data and example imagery. This public directory now retains the offline map, geography, Leaflet runtime/license and HazardWatch branding. The original repository-level `prototype/` is historical source and is not served by the current frontend.
+
+## Checks and handoff
 
 ```powershell
 pnpm --filter frontend typecheck
 pnpm --filter frontend lint
 pnpm --filter frontend test
 pnpm --filter frontend build
-node prototype/check.cjs
+# From vision-service/, with httpx available for HTTP boundary checks:
+& '..\.tools\vision-location\Scripts\python.exe' -B -m unittest discover -s tests -p test_location.py -v
 ```
 
-The upload regression check is `tests/unit/hazardwatch.test.tsx`. Task checklist, feedback decisions and a master-document entry are in `../docs/ux-ui/raw-mvp-frontend.md`.
+The frontend tests cover empty screens, real file inputs, location choices, approval before mapping and removal of the last marker. Synthetic backend samples/checks are in `vision-service/tests/` and are not exposed by the website. See [street-address search notes](../docs/ux-ui/street-address-search.md), [demo-removal notes and user-run commit steps](../docs/ux-ui/remove-demo-content.md), [map/location findings](../docs/ux-ui/map-location-investigation.md), and [the earlier RAW MVP scaffold record](../docs/ux-ui/raw-mvp-frontend.md) for history. The master-document update will be completed by the user.

@@ -4,15 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Check, ImagePlus, Send } from 'lucide-react'
 import { EmptyState } from '@/components/shared/EmptyState'
 import {
-  prompts,
-  sampleImage,
   type Incident,
   type Message,
   type Report,
-  type Severity,
   type SeverityFilter,
 } from '@/features/hazardwatch/model'
-import { ScreenHeader, SeverityBadge } from './ui'
+import { ScreenHeader, SeverityBadge, RichText } from './ui'
 
 export function PriorityList({
   items,
@@ -47,7 +44,7 @@ export function PriorityList({
                 <span className="hw-priority-copy">
                   <strong>{item.name}</strong>
                   <small>
-                    {item.images} images · {item.time} AEST
+                    {item.images} {item.video ? 'sampled frames' : 'images'} · {item.time}
                     {item.reviewed && (
                       <span className="hw-reviewed">
                         <Check size={12} /> Reviewed
@@ -63,7 +60,11 @@ export function PriorityList({
       ) : (
         <EmptyState
           title="No reports in this view"
-          description="Try another area or clear the report filters."
+          description={
+            onClear
+              ? 'Try another area or clear the report filters.'
+              : 'Submit media and approve its confirmed location to add it to the review queue.'
+          }
           action={
             onClear && (
               <button className="hw-button hw-secondary" onClick={onClear}>
@@ -76,7 +77,9 @@ export function PriorityList({
       {selected && (
         <div className="hw-selection">
           <h3>{selected.name}</h3>
-          <p>{selected.reason}</p>
+          <p>
+            <RichText text={selected.explainability || selected.reason} />
+          </p>
           <button className="hw-text-button" onClick={() => onInspect(selected.id)}>
             Inspect evidence <ArrowRight size={16} />
           </button>
@@ -103,9 +106,12 @@ export function Overview({
 }) {
   const metrics = [
     ['Locations', items.length],
-    ['High severity', items.filter((item) => item.severity === 'High').length],
+    [
+      'High + extreme',
+      items.filter((item) => item.severity === 'High' || item.severity === 'Extreme').length,
+    ],
     ['Awaiting review', items.filter((item) => !item.reviewed).length],
-    ['Session reports', reportCount],
+    ['Media reports', reportCount],
   ] as const
   return (
     <>
@@ -114,48 +120,35 @@ export function Overview({
         description="Find what needs attention, then review the evidence."
         action={
           <button className="hw-button" onClick={onUpload}>
-            <ImagePlus size={18} /> Submit an image
+            <ImagePlus size={18} /> Submit media
           </button>
         }
       />
-      <section className="hw-metrics" aria-label="Incident summary">
-        {metrics.map(([label, value]) => (
-          <div key={label}>
-            <span>{label}</span>
-            <strong>{String(value).padStart(2, '0')}</strong>
-          </div>
-        ))}
-      </section>
-      <div className="hw-overview-grid">
+      {(reportCount > 0 || items.length > 0) && (
+        <section className="hw-metrics" aria-label="Incident summary">
+          {metrics.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{String(value).padStart(2, '0')}</strong>
+            </div>
+          ))}
+        </section>
+      )}
+      {items.length > 0 ? (
         <PriorityList
           items={items}
           selectedId={selectedId}
           onSelect={onSelect}
           onInspect={onInspect}
         />
-        <section className="hw-panel hw-featured">
-          <img src={sampleImage} alt="Flames among trees in the reference photograph" />
-          <div className="hw-panel-body">
-            <div className="hw-section-heading">
-              <h2>Katoomba ridge</h2>
-              <SeverityBadge severity="High" />
-            </div>
-            <p>
-              Review the highest-priority sample report, its supporting evidence and what remains
-              uncertain.
-            </p>
-            <div className="hw-inline-actions">
-              <button className="hw-button" onClick={() => onInspect('HW-0241')}>
-                Review evidence <ArrowRight size={16} />
-              </button>
-              <a href="#map" className="hw-text-button">
-                Explore the map
-              </a>
-            </div>
-            <p className="hw-note">Reference image · Fictional incident context.</p>
-          </div>
+      ) : (
+        <section className="hw-panel">
+          <EmptyState
+            title="No approved reports yet"
+            description="Submit an image or video, assess it, and approve its location to add it to the map."
+          />
         </section>
-      </div>
+      )}
     </>
   )
 }
@@ -176,7 +169,7 @@ export function ReportFilters({
   return (
     <div className="hw-filters">
       <div className="hw-filter-levels" role="group" aria-label="Filter by severity">
-        {(['All', 'High', 'Moderate', 'Low'] as const).map((level) => (
+        {(['All', 'Extreme', 'High', 'Moderate', 'Low', 'None'] as const).map((level) => (
           <button key={level} aria-pressed={severity === level} onClick={() => onSeverity(level)}>
             {level}
           </button>
@@ -216,98 +209,91 @@ export function ReportsScreen({
   onInspect: (id: string) => void
   onPreview: (report: Report) => void
 }) {
+  const reviewedIds = new Set(incidents.filter((item) => item.reviewed).map((item) => item.id))
+
   return (
     <>
       <ScreenHeader
-        title="Image reports"
+        title="Media reports"
         description="Keep evidence and its context together for review."
         action={
           <button className="hw-button" onClick={onUpload}>
-            <ImagePlus size={18} /> Submit an image
+            <ImagePlus size={18} /> Submit media
           </button>
         }
       />
       {!reports.length && (
-        <div className="hw-empty-submissions">
-          <ImagePlus size={26} />
-          <div>
-            <h2>No images added in this session</h2>
-            <p>Try submitting an image. The five sample reports are available below.</p>
-          </div>
-          <button className="hw-button hw-secondary" onClick={onUpload}>
-            Try a submission
-          </button>
+        <section className="hw-panel">
+          <EmptyState
+            title="No media reports yet"
+            description="Submit an image or video to assess its severity and confirm its location."
+          />
+        </section>
+      )}
+      {reports.length > 0 && (
+        <div
+          className="hw-panel hw-table-wrap"
+          role="region"
+          aria-label="Report register"
+          tabIndex={0}
+        >
+          <table>
+            <caption className="hw-sr-only">Uploaded media reports and map approval status</caption>
+            <thead>
+              <tr>
+                <th>Report / location</th>
+                <th>Source & capture time</th>
+                <th>Assessment</th>
+                <th>Review</th>
+                <th>
+                  <span className="hw-sr-only">Action</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.map((report) => (
+                <tr key={report.id}>
+                  <td>
+                    <strong>{report.location}</strong>
+                    <small>
+                      {report.id} · {report.mediaType}
+                    </small>
+                  </td>
+                  <td>
+                    {report.source}
+                    <small>{report.date.replace('T', ' · ')} · Sydney time</small>
+                  </td>
+                  <td>
+                    <SeverityBadge severity={report.assessment?.severity ?? 'Unassessed'} />
+                  </td>
+                  <td>
+                    {report.approved
+                      ? reviewedIds.has(report.id)
+                        ? 'Approved for map · reviewed'
+                        : 'Approved for map'
+                      : report.assessment
+                        ? 'Pending map approval'
+                        : 'Awaiting assessment'}
+                  </td>
+                  <td>
+                    {report.approved && (
+                      <button className="hw-text-button" onClick={() => onInspect(report.id)}>
+                        Inspect <ArrowRight size={15} />
+                      </button>
+                    )}
+                    <button className="hw-text-button" onClick={() => onPreview(report)}>
+                      {report.approved ? 'Map approval' : 'Review report'} <ArrowRight size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
-      <div
-        className="hw-panel hw-table-wrap"
-        role="region"
-        aria-label="Report register"
-        tabIndex={0}
-      >
-        <table>
-          <caption className="hw-sr-only">Sample incidents and session submissions</caption>
-          <thead>
-            <tr>
-              <th>Report / location</th>
-              <th>Source & capture time</th>
-              <th>Assessment</th>
-              <th>Review</th>
-              <th>
-                <span className="hw-sr-only">Action</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map((report) => (
-              <tr key={report.id}>
-                <td>
-                  <strong>{report.location}</strong>
-                  <small>{report.id} · Added in this session</small>
-                </td>
-                <td>
-                  {report.source}
-                  <small>{report.date.replace('T', ' · ')} AEST</small>
-                </td>
-                <td>
-                  <SeverityBadge severity="Unassessed" />
-                </td>
-                <td>Awaiting assessment</td>
-                <td>
-                  <button className="hw-text-button" onClick={() => onPreview(report)}>
-                    View report <ArrowRight size={15} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {incidents.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <strong>{item.name}</strong>
-                  <small>
-                    {item.id} · {item.images} images
-                  </small>
-                </td>
-                <td>
-                  {item.source}
-                  <small>14 Sep · {item.time} AEST</small>
-                </td>
-                <td>
-                  <SeverityBadge severity={item.severity} />
-                </td>
-                <td>{item.reviewed ? 'Reviewed' : 'Awaiting review'}</td>
-                <td>
-                  <button className="hw-text-button" onClick={() => onInspect(item.id)}>
-                    Inspect <ArrowRight size={15} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
       <p className="hw-note">
-        Session submissions remain unassessed and clear on refresh or reset.
+        Pending reports stay in this register until approved for the map. Reloading clears unsaved
+        reports.
       </p>
     </>
   )
@@ -316,32 +302,35 @@ export function ReportsScreen({
 export function AssistantScreen({
   messages,
   items,
+  busy = false,
+  unavailableReason,
   onAsk,
   onInspect,
-  onFilter,
   onClear,
 }: {
   messages: Message[]
   items: Incident[]
+  busy?: boolean
+  unavailableReason?: string
   onAsk: (question: string) => void
   onInspect: (id: string) => void
-  onFilter: (severity: Severity) => void
   onClear: () => void
 }) {
   const [question, setQuestion] = useState('')
   const log = useRef<HTMLDivElement>(null)
+  const hasReport = items.length > 0
   useEffect(() => {
     if (log.current) log.current.scrollTop = log.current.scrollHeight
-  }, [messages])
+  }, [messages, busy])
   return (
     <>
       <ScreenHeader
         title="Ask HazardWatch"
-        description="Understand a priority and follow its supporting evidence."
+        description="Ask about severity and features, or rank / compare locations in the review queue."
       />
       <section className="hw-panel hw-chat">
         <div className="hw-chat-heading">
-          <span>Scripted demo responses</span>
+          <span>HazardWatchAI · approved reports</span>
           <button className="hw-text-button" disabled={!messages.length} onClick={onClear}>
             Clear conversation
           </button>
@@ -353,16 +342,28 @@ export function AssistantScreen({
           aria-label="Conversation"
           aria-live="polite"
         >
-          {!messages.length ? (
+          {!hasReport ? (
+            <div className="hw-chat-empty">
+              <h2>Approve a report to start a conversation.</h2>
+              <p>
+                Assess uploaded media and confirm its map location before asking about the evidence.
+              </p>
+            </div>
+          ) : !messages.length && !busy ? (
             <div className="hw-chat-empty">
               <h2>Start with a question.</h2>
-              <p>Explain a priority, compare two locations, or find reports by severity.</p>
+              <p>
+                Ask about the selected report, rank the review queue, explain why a location is
+                first, or compare two sites.
+              </p>
             </div>
           ) : (
             messages.map((message, index) => (
               <article key={index} className={`hw-message hw-message-${message.role}`}>
-                <strong>{message.role === 'user' ? 'You' : 'HazardWatch'}</strong>
-                <p>{message.text}</p>
+                <strong>{message.role === 'user' ? 'You' : 'HazardWatchAI'}</strong>
+                <p>
+                  <RichText text={message.text} />
+                </p>
                 {message.refs?.length ? (
                   <div className="hw-source-links">
                     {message.refs.map((id) => (
@@ -372,48 +373,54 @@ export function AssistantScreen({
                     ))}
                   </div>
                 ) : null}
-                {message.filter && (
-                  <button className="hw-text-button" onClick={() => onFilter(message.filter!)}>
-                    Open filtered hazard map <ArrowRight size={14} />
-                  </button>
-                )}
               </article>
             ))
           )}
+          {busy && (
+            <article className="hw-message hw-message-assistant">
+              <strong>HazardWatchAI</strong>
+              <p role="status">Thinking…</p>
+            </article>
+          )}
         </div>
         <div className="hw-chat-composer">
-          <div className="hw-prompts">
-            {prompts.map((prompt) => (
-              <button key={prompt} onClick={() => onAsk(prompt)}>
-                {prompt}
-              </button>
-            ))}
-          </div>
+          {unavailableReason && (
+            <p className="hw-error" role="alert">
+              {unavailableReason}
+            </p>
+          )}
           <form
             onSubmit={(event) => {
               event.preventDefault()
-              if (question.trim()) {
+              if (question.trim() && !busy && hasReport) {
                 onAsk(question.trim())
                 setQuestion('')
               }
             }}
           >
             <label htmlFor="hw-question" className="hw-sr-only">
-              Ask about sample evidence
+              Ask about the selected assessment
             </label>
             <input
               id="hw-question"
               maxLength={500}
               required
-              placeholder="Ask about a location or its priority…"
+              disabled={busy || !hasReport}
+              placeholder="Ask to rank, compare, or explain a priority…"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
             />
-            <button className="hw-button" aria-label="Send question" disabled={!question.trim()}>
+            <button
+              className="hw-button"
+              aria-label="Send question"
+              disabled={busy || !hasReport || !question.trim()}
+            >
               <Send size={18} />
             </button>
           </form>
-          <p className="hw-note">Prewritten sample answers. No connected AI service.</p>
+          <p className="hw-note">
+            Replies use your approved reports. Verify conclusions against the original evidence.
+          </p>
         </div>
       </section>
     </>

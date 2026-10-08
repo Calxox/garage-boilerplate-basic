@@ -1,19 +1,26 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { LayoutDashboard, Map, Images, MessageSquare, RotateCcw, Route, X } from 'lucide-react'
+import { LayoutDashboard, Map, Images, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
+import { EmptyState } from '@/components/shared/EmptyState'
 import {
-  answerQuestion,
   filterIncidents,
-  incidents as seed,
+  approvalError,
+  reportToIncident,
   viewLabels,
+  type Incident,
   type Message,
   type Report,
   type SeverityFilter,
   type View,
 } from '@/features/hazardwatch/model'
+import {
+  chatAboutAssessment,
+  incidentToCard,
+  incidentToSeverityJson,
+} from '@/features/hazardwatch/api'
 import { HazardMap } from './HazardMap'
 import { ClassificationResult } from './ClassificationResult'
 import { ImageUpload, ReportPreview } from './ImageUpload'
@@ -26,34 +33,6 @@ const navigation = [
   ['reports', Images],
   ['assistant', MessageSquare],
 ] as const
-const tour = [
-  {
-    view: 'overview',
-    title: 'Scan the situation',
-    text: 'Review the counts and choose a location in the review queue.',
-  },
-  {
-    view: 'map',
-    title: 'Locate the evidence',
-    text: 'Choose Blue Mountains, filter by severity, and select a report marker.',
-  },
-  {
-    view: 'hazard',
-    title: 'Review Katoomba',
-    text: 'Read the sample classification and uncertainty, then mark the report reviewed.',
-  },
-  {
-    view: 'assistant',
-    title: 'Ask why',
-    text: 'Ask why Katoomba is ranked first and follow its evidence link.',
-  },
-  {
-    view: 'reports',
-    title: 'Add a field image',
-    text: 'Submit an image, add its context, and review the new unassessed report.',
-  },
-] satisfies { view: View; title: string; text: string }[]
-
 function subscribeView(callback: () => void) {
   window.addEventListener('hashchange', callback)
   return () => window.removeEventListener('hashchange', callback)
@@ -68,8 +47,8 @@ function navigate(view: View) {
 
 export function HazardWorkspace() {
   const view = useSyncExternalStore(subscribeView, readView, () => 'overview' as View)
-  const [incidents, setIncidents] = useState(() => seed.map((item) => ({ ...item })))
-  const [selectedId, setSelectedId] = useState('HW-0241')
+  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [selectedId, setSelectedId] = useState('')
   const [severity, setSeverity] = useState<SeverityFilter>('All')
   const [query, setQuery] = useState('')
   const [visibleIds, setVisibleIds] = useState<string[] | null>(null)
@@ -77,10 +56,13 @@ export function HazardWorkspace() {
   const [messages, setMessages] = useState<Message[]>([])
   const [uploadOpen, setUploadOpen] = useState(false)
   const [previewReport, setPreviewReport] = useState<Report | null>(null)
-  const [resetOpen, setResetOpen] = useState(false)
   const [resetKey, setResetKey] = useState(0)
-  const [tourStep, setTourStep] = useState<number | null>(null)
+  const [mapFocusId, setMapFocusId] = useState<string | null>(null)
+  const [chatBusy, setChatBusy] = useState(false)
+  const [chatError, setChatError] = useState('')
   const nextReport = useRef(1)
+  const lastSubmittedId = useRef('')
+  const chatGeneration = useRef({ value: 0 })
   const objectUrls = useRef(new Set<string>())
   const main = useRef<HTMLElement>(null)
   const filtered = useMemo(
@@ -89,8 +71,10 @@ export function HazardWorkspace() {
   )
   const visible =
     visibleIds === null ? filtered : filtered.filter((item) => visibleIds.includes(item.id))
-  const selected = incidents.find((item) => item.id === selectedId) ?? incidents[0]!
-  const step = tourStep === null ? null : tour[tourStep]
+  const selected = incidents.find((item) => item.id === selectedId) ?? incidents[0]
+  const currentPreview = previewReport
+    ? (reports.find((report) => report.id === previewReport.id) ?? previewReport)
+    : null
 
   useEffect(() => {
     document.title = `${viewLabels[view]} · HazardWatch`
@@ -98,7 +82,9 @@ export function HazardWorkspace() {
   }, [view])
   useEffect(() => {
     const urls = objectUrls.current
+    const generation = chatGeneration.current
     return () => {
+      generation.value++
       urls.forEach((url) => URL.revokeObjectURL(url))
       urls.clear()
     }
@@ -106,6 +92,12 @@ export function HazardWorkspace() {
   const selectIncident = useCallback((id: string) => setSelectedId(id), [])
   const onVisible = useCallback((ids: string[]) => setVisibleIds(ids), [])
   function inspect(id: string) {
+    const report = reports.find((item) => item.id === id)
+    if (report && !report.approved) {
+      setPreviewReport(report)
+      navigate('reports')
+      return
+    }
     setSelectedId(id)
     navigate('hazard')
     window.scrollTo(0, 0)
@@ -115,48 +107,97 @@ export function HazardWorkspace() {
     setQuery('')
     setVisibleIds(null)
     setResetKey((value) => value + 1)
+    setMapFocusId(null)
   }
-  function ask(question: string) {
-    const text = question.trim().slice(0, 500)
-    if (!text) return
-    setMessages((current) => [
-      ...current,
-      { role: 'user', text },
-      { role: 'assistant', ...answerQuestion(text, incidents, selectedId) },
-    ])
-    navigate('assistant')
-  }
-  function addReport(report: Omit<Report, 'id'>) {
-    const id = `DEMO-${String(nextReport.current++).padStart(3, '0')}`
-    if (report.preview.startsWith('blob:')) objectUrls.current.add(report.preview)
-    setReports((current) => [{ ...report, id }, ...current])
-    return id
-  }
-  function reset() {
-    objectUrls.current.forEach((url) => URL.revokeObjectURL(url))
-    objectUrls.current.clear()
-    setIncidents(seed.map((item) => ({ ...item })))
-    setSelectedId('HW-0241')
-    setReports([])
+  function clearConversation() {
+    chatGeneration.current.value++
     setMessages([])
-    nextReport.current = 1
-    clearFilters()
-    setTourStep(null)
-    setResetOpen(false)
-    navigate('overview')
-    toast.success('Demo restored to its original sample data.')
+    setChatBusy(false)
+    setChatError('')
   }
-  function moveTour(index: number) {
-    const next = tour[index]
-    if (!next) {
-      setTourStep(null)
+  async function ask(question: string) {
+    const text = question.trim().slice(0, 500)
+    if (!text || chatBusy) return
+    navigate('assistant')
+    const current = incidents.find((item) => item.id === selectedId) ?? incidents[0]
+    if (!current) {
+      setChatError('Submit and approve an assessed report before asking about its evidence.')
       return
     }
+    const history = messages.map((m) => ({ role: m.role, content: m.text }))
+    const board = incidents.map(incidentToCard)
+    const generation = ++chatGeneration.current.value
+    setMessages((prev) => [...prev, { role: 'user', text }])
+    setChatBusy(true)
+    setChatError('')
+    try {
+      const severityJson = incidentToSeverityJson(current)
+      const { reply, refs } = await chatAboutAssessment(
+        text,
+        severityJson,
+        history,
+        board,
+        current?.id
+      )
+      if (generation !== chatGeneration.current.value) return
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: reply,
+          refs: refs.filter((id) => incidents.some((item) => item.id === id)),
+        },
+      ])
+    } catch (err) {
+      if (generation !== chatGeneration.current.value) return
+      setChatError(
+        err instanceof Error
+          ? `The assistant service is unavailable: ${err.message}`
+          : 'The assistant service is unavailable. Please try again.'
+      )
+    } finally {
+      if (generation === chatGeneration.current.value) setChatBusy(false)
+    }
+  }
+  function addReport(report: Omit<Report, 'id'>) {
+    const id = `HW-${String(nextReport.current++).padStart(3, '0')}`
+    if (report.preview.startsWith('blob:')) objectUrls.current.add(report.preview)
+    const withId = { ...report, id, approved: false }
+    lastSubmittedId.current = id
+    setReports((current) => [withId, ...current])
+    return id
+  }
+  function approveReport(report: Report) {
+    const problem = approvalError(report)
+    const incident = reportToIncident({ ...report, approved: true })
+    if (problem || !incident) {
+      toast.error(problem || 'Check the assessment and location before approval.')
+      return
+    }
+    setReports((current) =>
+      current.map((item) => (item.id === report.id ? { ...item, approved: true } : item))
+    )
+    setIncidents((current) =>
+      current.some((item) => item.id === incident.id) ? current : [incident, ...current]
+    )
     clearFilters()
-    setSelectedId('HW-0241')
-    setTourStep(index)
-    navigate(next.view)
-    window.scrollTo(0, 0)
+    setSelectedId(incident.id)
+    setMapFocusId(incident.id)
+    setPreviewReport(null)
+    navigate('map')
+    toast.success('Report approved and added at its confirmed location.')
+  }
+  function removeFromMap(report: Report) {
+    setReports((current) =>
+      current.map((item) => (item.id === report.id ? { ...item, approved: false } : item))
+    )
+    setIncidents((current) => current.filter((item) => item.id !== report.id))
+    if (selectedId === report.id) {
+      setSelectedId(incidents.find((item) => item.id !== report.id)?.id ?? '')
+      clearConversation()
+    }
+    setMapFocusId(null)
+    toast.success('Removed from the map. The report remains in the register.')
   }
 
   return (
@@ -194,36 +235,12 @@ export function HazardWorkspace() {
             </a>
           ))}
         </nav>
-        <div className="hw-sidebar-bottom">
-          <button className="hw-text-button" onClick={() => moveTour(0)}>
-            <Route size={18} /> Walk through the journey
-          </button>
-          <p>
-            Incident coordinator
-            <br />
-            <span>Demo workspace</span>
-          </p>
-        </div>
       </aside>
       <div className="hw-workspace">
         <header className="hw-topbar">
-          <span className="hw-demo-status">
-            <i /> Sample data <span>· 14 Sep 2026, 14:32 AEST</span>
-          </span>
-          <div>
-            <button
-              className="hw-icon-button hw-mobile-tour"
-              aria-label="Start guided tour"
-              onClick={() => moveTour(0)}
-            >
-              <Route size={18} />
-            </button>
-            <button className="hw-text-button" onClick={() => setResetOpen(true)}>
-              <RotateCcw size={16} /> Reset demo
-            </button>
-          </div>
+          <span>Workspace / {viewLabels[view]}</span>
         </header>
-        <main id="hw-main" ref={main} tabIndex={-1} className={step ? 'hw-touring' : ''}>
+        <main id="hw-main" ref={main} tabIndex={-1}>
           <ErrorBoundary>
             {view === 'overview' && (
               <Overview
@@ -260,6 +277,7 @@ export function HazardWorkspace() {
                     onSelect={selectIncident}
                     onVisible={onVisible}
                     resetKey={resetKey}
+                    focusId={mapFocusId}
                   />
                   <PriorityList
                     items={visible}
@@ -270,29 +288,39 @@ export function HazardWorkspace() {
                   />
                 </div>
                 <p className="hw-note">
-                  Five fictional reports in the Blue Mountains. Other areas may have no demo
-                  reports.
+                  Reports appear after their location and assessment are approved for the map.
                 </p>
               </>
             )}
-            {view === 'hazard' && (
-              <ClassificationResult
-                incident={selected}
-                onReview={() => {
-                  setIncidents((current) =>
-                    current.map((item) =>
-                      item.id === selectedId ? { ...item, reviewed: !item.reviewed } : item
+            {view === 'hazard' &&
+              (selected ? (
+                <ClassificationResult
+                  incident={selected}
+                  onReview={() => {
+                    setIncidents((current) =>
+                      current.map((item) =>
+                        item.id === selected.id ? { ...item, reviewed: !item.reviewed } : item
+                      )
                     )
-                  )
-                  toast.success(
-                    selected.reviewed
-                      ? 'Review mark removed.'
-                      : 'Marked as reviewed in this session.'
-                  )
-                }}
-                onAsk={() => ask(`Why is ${selected.name} prioritised?`)}
-              />
-            )}
+                    toast.success(
+                      selected.reviewed
+                        ? 'Review mark removed.'
+                        : 'Marked as reviewed in this session.'
+                    )
+                  }}
+                  onAsk={() => ask(`Why is ${selected.name} prioritised?`)}
+                />
+              ) : (
+                <EmptyState
+                  title="No assessment selected"
+                  description="Submit media and approve its assessment to review it here."
+                  action={
+                    <button className="hw-button" onClick={() => setUploadOpen(true)}>
+                      Submit media
+                    </button>
+                  }
+                />
+              ))}
             {view === 'reports' && (
               <ReportsScreen
                 incidents={incidents}
@@ -306,52 +334,17 @@ export function HazardWorkspace() {
               <AssistantScreen
                 messages={messages}
                 items={incidents}
-                onAsk={ask}
+                busy={chatBusy}
+                unavailableReason={chatError}
+                onAsk={(q) => void ask(q)}
                 onInspect={inspect}
-                onClear={() => setMessages([])}
-                onFilter={(level) => {
-                  clearFilters()
-                  setSeverity(level)
-                  navigate('map')
-                }}
+                onClear={clearConversation}
               />
             )}
           </ErrorBoundary>
         </main>
-        <footer className="hw-footer">
-          Frontend demo · Fictional data · Human review required
-        </footer>
+        <footer className="hw-footer">HazardWatch · Human review required</footer>
       </div>
-      {step && (
-        <section className="hw-tour" aria-label="Guided journey">
-          <span className="hw-tour-count">
-            {tourStep! + 1} / {tour.length}
-          </span>
-          <div>
-            <strong>{step.title}</strong>
-            <p>{step.text}</p>
-          </div>
-          <div className="hw-inline-actions">
-            <button
-              className="hw-icon-button"
-              aria-label="End tour"
-              onClick={() => setTourStep(null)}
-            >
-              <X size={18} />
-            </button>
-            <button
-              className="hw-button hw-secondary"
-              disabled={tourStep === 0}
-              onClick={() => moveTour(tourStep! - 1)}
-            >
-              Back
-            </button>
-            <button className="hw-button" onClick={() => moveTour(tourStep! + 1)}>
-              {tourStep === tour.length - 1 ? 'Finish' : 'Next'}
-            </button>
-          </div>
-        </section>
-      )}
       {uploadOpen && (
         <ImageUpload
           onClose={() => setUploadOpen(false)}
@@ -359,34 +352,55 @@ export function HazardWorkspace() {
           onViewReport={() => {
             setUploadOpen(false)
             navigate('reports')
+            const report = reports.find((item) => item.id === lastSubmittedId.current)
+            if (report) setPreviewReport(report)
           }}
         />
       )}
-      {previewReport && (
-        <Modal title="Session report" onClose={() => setPreviewReport(null)}>
+      {currentPreview && (
+        <Modal title="Media report" onClose={() => setPreviewReport(null)}>
           <div className="hw-modal-body">
-            <ReportPreview report={previewReport} />
+            <ReportPreview report={currentPreview} />
             <p className="hw-note">
-              This local image has not been analysed or added to the hazard map.
+              {currentPreview.approved
+                ? 'Approved for the map at the confirmed coordinates. This is separate from dispatch approval.'
+                : 'Pending map approval. Review the evidence, assessment and confirmed location before adding it to the map.'}
             </p>
-          </div>
-        </Modal>
-      )}
-      {resetOpen && (
-        <Modal title="Reset this demo?" onClose={() => setResetOpen(false)}>
-          <div className="hw-modal-body">
-            <p>
-              This clears your session reports, review marks, conversation and tour progress. The
-              original sample reports will be restored.
-            </p>
-            <div className="hw-actions">
-              <button className="hw-button hw-secondary" onClick={() => setResetOpen(false)}>
-                Keep working
-              </button>
-              <button className="hw-button" onClick={reset}>
-                Reset demo
-              </button>
-            </div>
+            {!currentPreview.approved && approvalError(currentPreview) && (
+              <p className="hw-error" role="status">
+                {approvalError(currentPreview)}
+              </p>
+            )}
+            {currentPreview.approved ? (
+              <div className="hw-actions">
+                <button
+                  className="hw-button hw-secondary"
+                  onClick={() => removeFromMap(currentPreview)}
+                >
+                  Remove from map
+                </button>
+                <button
+                  className="hw-button"
+                  onClick={() => {
+                    setSelectedId(currentPreview.id)
+                    setPreviewReport(null)
+                    navigate('hazard')
+                  }}
+                >
+                  Open assessment
+                </button>
+              </div>
+            ) : (
+              <div className="hw-actions">
+                <button
+                  className="hw-button"
+                  disabled={Boolean(approvalError(currentPreview))}
+                  onClick={() => approveReport(currentPreview)}
+                >
+                  Approve and add to map
+                </button>
+              </div>
+            )}
           </div>
         </Modal>
       )}

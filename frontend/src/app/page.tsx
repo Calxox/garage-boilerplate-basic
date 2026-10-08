@@ -5,7 +5,7 @@ import '@/features/hazardwatch/hazardwatch.css'
 export const metadata: Metadata = {
   title: 'HazardWatch',
   description:
-    'Review bushfire evidence, explore locations and submit imagery in the HazardWatch frontend demo.',
+    'Submit bushfire imagery, review assessments and explore approved reports on the HazardWatch map.',
   icons: { icon: '/prototype/assets/hazard-watch-logo.png' },
 }
 

@@ -1,0 +1,329 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import {
+  coordinatesFromText,
+  coordinateSchema,
+  inMapCoverage,
+  locationSources,
+  suggestPlaces,
+  searchAddresses,
+  type Coordinates,
+  type PlaceSuggestion,
+} from '@/features/hazardwatch/location'
+import type { MediaLocationMetadata } from '@/features/hazardwatch/api'
+
+export function LocationInput({
+  location,
+  coordinates,
+  onChange,
+  metadata,
+  metadataBusy,
+  metadataNotice,
+}: {
+  location: string
+  coordinates?: Coordinates
+  onChange: (location: string, coordinates?: Coordinates) => void
+  metadata?: MediaLocationMetadata | null
+  metadataBusy?: boolean
+  metadataNotice?: string
+}) {
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([])
+  const [addresses, setAddresses] = useState<PlaceSuggestion[]>([])
+  const [searchingAddress, setSearchingAddress] = useState(false)
+  const addressRequest = useRef<AbortController | null>(null)
+  const [latitude, setLatitude] = useState(coordinates ? String(coordinates.latitude) : '')
+  const [longitude, setLongitude] = useState(coordinates ? String(coordinates.longitude) : '')
+  const [locating, setLocating] = useState(false)
+  const [notice, setNotice] = useState('')
+  const request = useRef(0)
+  const entered = coordinatesFromText(latitude, longitude)
+  useEffect(
+    () => () => {
+      request.current++
+      addressRequest.current?.abort()
+    },
+    []
+  )
+  useEffect(() => {
+    if (coordinates || location.trim().length < 2) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void suggestPlaces(location)
+        .then((results) => {
+          if (!cancelled) setSuggestions(results)
+        })
+        .catch(() => {
+          if (!cancelled)
+            setNotice('Place search is unavailable. Enter coordinates or use your device location.')
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [location, coordinates])
+
+  function invalidate() {
+    request.current++
+    addressRequest.current?.abort()
+    addressRequest.current = null
+    setSearchingAddress(false)
+    setAddresses([])
+    setLocating(false)
+    setSuggestions([])
+    setNotice('')
+  }
+  function confirm(label: string, point: Coordinates) {
+    invalidate()
+    setLatitude(String(point.latitude))
+    setLongitude(String(point.longitude))
+    onChange(label, point)
+  }
+  async function findAddress() {
+    invalidate()
+    const version = ++request.current
+    const controller = new AbortController()
+    addressRequest.current = controller
+    setSearchingAddress(true)
+    try {
+      const results = await searchAddresses(location, controller.signal)
+      if (version !== request.current) return
+      setAddresses(results)
+      setNotice(
+        results.length
+          ? ''
+          : 'No matching street address found. Add the suburb or postcode, or enter coordinates. A suburb centre will not be used.'
+      )
+    } catch (error) {
+      if (version === request.current && !controller.signal.aborted)
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : 'Address lookup is unavailable. Enter coordinates or select a place.'
+        )
+    } finally {
+      if (version === request.current) setSearchingAddress(false)
+    }
+  }
+  function locate() {
+    invalidate()
+    if (!navigator.geolocation) {
+      setNotice('Device location is unavailable. Enter coordinates or select a place.')
+      return
+    }
+    const version = ++request.current
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (version !== request.current) return
+        const result = coordinateSchema.safeParse({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          source: 'device',
+          accuracy: position.coords.accuracy,
+        })
+        setLocating(false)
+        if (!result.success) {
+          setNotice('The device returned invalid coordinates. Choose another location method.')
+          return
+        }
+        confirm(location || 'Device location', result.data)
+      },
+      (error) => {
+        if (version !== request.current) return
+        setLocating(false)
+        setNotice(
+          error.code === 1
+            ? 'Location permission was denied. Select a place or enter coordinates.'
+            : 'Device location could not be obtained. Select a place or enter coordinates.'
+        )
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  }
+
+  return (
+    <fieldset className="hw-location-input">
+      <legend>Capture location</legend>
+      <div className="hw-field">
+        <label htmlFor="hw-location">
+          Location <span>Required</span>
+        </label>
+        <input
+          id="hw-location"
+          autoComplete="off"
+          maxLength={240}
+          required
+          value={location}
+          onChange={(event) => {
+            invalidate()
+            onChange(event.target.value, undefined)
+          }}
+          placeholder="Street address, town, region or named place…"
+          aria-describedby="hw-location-help"
+        />
+        <small id="hw-location-help">
+          Place suggestions work offline. Find address sends this input to online address lookup;
+          include the suburb or postcode for a more precise match.
+        </small>
+        <button
+          type="button"
+          className="hw-text-button"
+          onClick={() => void findAddress()}
+          disabled={location.trim().length < 4 || searchingAddress}
+        >
+          {searchingAddress ? 'Finding address…' : 'Find address'}
+        </button>
+        {addresses.length > 0 && (
+          <>
+            <ul className="hw-place-suggestions" aria-label="Matching street addresses">
+              {addresses.map((address) => (
+                <li key={address.label}>
+                  <button type="button" onClick={() => confirm(address.label, address.coordinates)}>
+                    {address.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <small>
+              Address data ©{' '}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+                OpenStreetMap contributors
+              </a>
+              . Select a match to confirm its mapped point.
+            </small>
+          </>
+        )}
+        {suggestions.length > 0 && (
+          <ul className="hw-place-suggestions" aria-label="Suggested locations">
+            {suggestions.map((suggestion) => (
+              <li
+                key={`${suggestion.label}-${suggestion.coordinates.latitude}-${suggestion.coordinates.longitude}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => confirm(suggestion.label.slice(0, 240), suggestion.coordinates)}
+                >
+                  {suggestion.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {metadataBusy && (
+        <p role="status" className="hw-note">
+          Checking media location metadata… You can enter a location meanwhile.
+        </p>
+      )}
+      {metadata?.status === 'found' && metadata.source && (
+        <div className="hw-metadata-found">
+          <p>
+            {locationSources[metadata.source]}: {metadata.latitude?.toFixed(6)},{' '}
+            {metadata.longitude?.toFixed(6)}
+          </p>
+          <button
+            type="button"
+            className="hw-button hw-secondary"
+            onClick={() =>
+              confirm(location || 'Media capture location', {
+                latitude: metadata.latitude!,
+                longitude: metadata.longitude!,
+                source: metadata.source!,
+              })
+            }
+          >
+            Use location from media
+          </button>
+        </div>
+      )}
+      {(metadataNotice || (metadata && metadata.status !== 'found')) && (
+        <p className="hw-note" role="status">
+          {metadataNotice || metadata?.detail} Select a place, enter coordinates, or use device
+          location.
+        </p>
+      )}
+      <div className="hw-coordinate-grid">
+        <div className="hw-field">
+          <label htmlFor="hw-latitude">Latitude</label>
+          <input
+            id="hw-latitude"
+            type="text"
+            inputMode="decimal"
+            value={latitude}
+            placeholder="-33.87"
+            onChange={(event) => {
+              invalidate()
+              setLatitude(event.target.value)
+              onChange(location, undefined)
+            }}
+          />
+        </div>
+        <div className="hw-field">
+          <label htmlFor="hw-longitude">Longitude</label>
+          <input
+            id="hw-longitude"
+            type="text"
+            inputMode="decimal"
+            value={longitude}
+            placeholder="151.21"
+            onChange={(event) => {
+              invalidate()
+              setLongitude(event.target.value)
+              onChange(location, undefined)
+            }}
+          />
+        </div>
+      </div>
+      <div className="hw-inline-actions">
+        <button
+          type="button"
+          className="hw-button hw-secondary"
+          disabled={!entered}
+          onClick={() => confirm(location || 'Entered capture coordinates', entered!)}
+        >
+          Apply coordinates
+        </button>
+        <button type="button" className="hw-text-button" onClick={locate} disabled={locating}>
+          {locating ? 'Getting device location…' : 'Use device location'}
+        </button>
+      </div>
+      <p className="hw-note">
+        Use signed decimal degrees. Device location is your position now; confirm that it matches
+        where the media was captured.
+      </p>
+      {notice && (
+        <p role="status" className="hw-error">
+          {notice}
+        </p>
+      )}
+      {coordinates ? (
+        <p role="status" className="hw-confirmed-location">
+          <strong>Location confirmed:</strong> {coordinates.latitude.toFixed(6)},{' '}
+          {coordinates.longitude.toFixed(6)} · {locationSources[coordinates.source]}
+          {coordinates.source === 'address' && (
+            <span>
+              Address data ©{' '}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+                OpenStreetMap contributors
+              </a>
+              ; check that this is the capture address.
+            </span>
+          )}
+          {coordinates.accuracy !== undefined && ` · ±${Math.round(coordinates.accuracy)} m`}
+          {!inMapCoverage(coordinates) && (
+            <span>
+              Outside current Australia/New Zealand map coverage; this report cannot be added to the
+              map.
+            </span>
+          )}
+        </p>
+      ) : (
+        <p className="hw-note">
+          Confirm coordinates with one of the options above before continuing.
+        </p>
+      )}
+    </fieldset>
+  )
+}

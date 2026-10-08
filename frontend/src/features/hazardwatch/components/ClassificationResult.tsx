@@ -1,8 +1,13 @@
 'use client'
 
 import { ArrowLeft, Check, ImageOff, MessageSquare } from 'lucide-react'
-import { sampleImage, type Incident } from '@/features/hazardwatch/model'
-import { ScreenHeader, SeverityBadge } from './ui'
+import {
+  featureScoresDescending,
+  formatFeatureLabel,
+  type Incident,
+} from '@/features/hazardwatch/model'
+import { ScreenHeader, SeverityBadge, RichText } from './ui'
+import { locationSources, type Coordinates } from '@/features/hazardwatch/location'
 
 export function ClassificationResult({
   incident,
@@ -13,28 +18,42 @@ export function ClassificationResult({
   onReview: () => void
   onAsk: () => void
 }) {
+  const featureRows = featureScoresDescending(incident.keyFeatureScores)
+  const explainability = incident.explainability || incident.reason
+  const locationSource = incident.locationSource
+    ? (locationSources[incident.locationSource as Coordinates['source']] ?? incident.locationSource)
+    : undefined
+  const captured = incident.capturedAt
+    ? `Captured ${incident.capturedAt.replace('T', ' · ')} · Sydney time`
+    : 'Capture time unavailable'
+
   return (
     <>
       <a href="#map" className="hw-back">
         <ArrowLeft size={16} /> Back to hazard map
       </a>
-      <ScreenHeader
-        title={incident.name}
-        description={`${incident.area} · Captured 14 Sep 2026, ${incident.time} AEST`}
-      />
+      <ScreenHeader title={incident.name} description={`${incident.area} · ${captured}`} />
       <div className="hw-assessment-grid">
-        <section className="hw-panel hw-evidence" aria-label="Image evidence">
-          {incident.photo ? (
+        <section className="hw-panel hw-evidence" aria-label="Media evidence">
+          {incident.video ? (
+            <video
+              className="hw-evidence-image"
+              src={incident.video}
+              controls
+              playsInline
+              aria-label={`Video evidence for ${incident.name}`}
+            />
+          ) : incident.photo ? (
             <img
               className="hw-evidence-image"
-              src={sampleImage}
-              alt="Flames among trees in the reference photograph"
+              src={incident.photo}
+              alt={`Evidence for ${incident.name}`}
             />
           ) : (
             <div className="hw-missing-image">
               <ImageOff size={36} />
-              <h2>Image not available</h2>
-              <p>This sample report has no attached photograph.</p>
+              <h2>Media not available</h2>
+              <p>This report has no attached image or video.</p>
             </div>
           )}
           <div className="hw-panel-body">
@@ -49,48 +68,64 @@ export function ClassificationResult({
                 <dd>{incident.source}</dd>
               </div>
               <div>
-                <dt>Supporting images</dt>
+                <dt>{incident.video ? 'Sampled video frames' : 'Supporting images'}</dt>
                 <dd>{incident.images}</dd>
               </div>
               <div>
-                <dt>Image quality</dt>
-                <dd>{incident.quality}</dd>
+                <dt>Media type</dt>
+                <dd>{incident.video ? 'Video' : 'Image'}</dd>
               </div>
+              {incident.locationSource && (
+                <>
+                  <div>
+                    <dt>Confirmed coordinates</dt>
+                    <dd>
+                      {incident.lat.toFixed(6)}, {incident.lng.toFixed(6)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Location source</dt>
+                    <dd>{locationSource}</dd>
+                  </div>
+                </>
+              )}
             </dl>
-            {incident.photo && (
-              <p className="hw-note">
-                Reference photograph; its actual location and capture time are unverified. Katoomba
-                is fictional demo context.
-              </p>
-            )}
           </div>
         </section>
         <section className="hw-panel hw-panel-body" aria-labelledby="hw-classification-title">
           <div className="hw-section-heading">
-            <h2 id="hw-classification-title">Sample classification</h2>
+            <h2 id="hw-classification-title">Classification</h2>
             <SeverityBadge severity={incident.severity} />
           </div>
           <p className="hw-classification">{incident.hazard}</p>
           <dl className="hw-result-stats">
             <div>
-              <dt>Sample confidence</dt>
+              <dt>Severity confidence</dt>
               <dd>{incident.confidence}%</dd>
             </div>
-            <div>
-              <dt>Illustrative area</dt>
-              <dd>
-                {incident.hectares}
-                {incident.hectares !== '—' && <small> ha</small>}
-              </dd>
-            </div>
           </dl>
-          <p className="hw-muted">Prewritten demonstration values, not measured results.</p>
+          {featureRows.length > 0 && (
+            <div className="hw-feature-scores">
+              <h3>Key feature confidences</h3>
+              <dl className="hw-feature-score-list">
+                {featureRows.map(([key, pct]) => (
+                  <div key={key}>
+                    <dt>{formatFeatureLabel(key)}</dt>
+                    <dd>{Math.round(pct)}%</dd>
+                  </div>
+                ))}
+              </dl>
+              {incident.video && (
+                <p className="hw-note">
+                  For video, each score is the mean feature confidence across sampled frames.
+                </p>
+              )}
+            </div>
+          )}
           <h3>Why this needs attention</h3>
-          <p>{incident.reason}</p>
-          <div className="hw-uncertainty">
-            <h3>What remains uncertain</h3>
-            <p>{incident.uncertainty}</p>
-          </div>
+          <p className="hw-explainability">
+            <RichText text={explainability} />
+          </p>
           <div className="hw-stack">
             <button
               className={`hw-button ${incident.reviewed ? 'hw-secondary' : ''}`}
@@ -107,8 +142,10 @@ export function ClassificationResult({
           <details className="hw-details">
             <summary>How to interpret severity</summary>
             <p>
-              High: visible flames in the sample. Moderate: smoke requiring confirmation. Low:
-              ambiguous evidence requiring verification. Low does not mean safe.
+              None: no clear bushfire hazard in the assessment. Low: ambiguous evidence requiring
+              verification. Moderate: smoke or indirect signs needing confirmation. High: strong
+              flame or smoke signals. Extreme: severe, active fire indicators across multiple
+              features. Low does not mean safe.
             </p>
           </details>
         </section>

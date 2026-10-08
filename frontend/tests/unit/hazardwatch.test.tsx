@@ -1,46 +1,188 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { ImageUpload } from '@/features/hazardwatch/components/ImageUpload'
 import { reportSchema, type Report } from '@/features/hazardwatch/model'
+import { captureTimeNow } from '@/features/hazardwatch/location'
+import type { SeverityJson } from '@/features/hazardwatch/api'
 
-test('a submission validates context, preserves edits and creates one unassessed report', () => {
+const service = vi.hoisted(() => ({ assess: vi.fn(), metadata: vi.fn() }))
+vi.mock('@/features/hazardwatch/api', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  assessMedia: service.assess,
+  readMediaLocation: service.metadata,
+}))
+
+const assessment: SeverityJson = {
+  input_type: 'image',
+  severity: 'high',
+  severity_confidence: 0.85,
+  severity_index: 3,
+  key_features: ['actual_flames'],
+  key_feature_scores: { actual_flames: 0.9 },
+  explainability_note: 'Flames visible; extent uncertain.',
+  modality: 'ground',
+}
+
+beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true
   }
   HTMLDialogElement.prototype.close = function () {
     this.open = false
   }
-  const submit = vi.fn<(report: Omit<Report, 'id'>) => string>(() => 'DEMO-001')
-  const rendered = render(
-    <ImageUpload onClose={() => {}} onSubmit={submit} onViewReport={() => {}} />
+  service.assess.mockReset().mockResolvedValue(assessment)
+  service.metadata.mockReset().mockResolvedValue({
+    status: 'missing',
+    latitude: null,
+    longitude: null,
+    source: null,
+    detail: 'No GPS metadata.',
+  })
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No network in upload tests')))
+  vi.stubGlobal(
+    'Image',
+    class {
+      src = ''
+      decode = vi.fn().mockResolvedValue(undefined)
+    }
   )
+  vi.stubGlobal(
+    'URL',
+    class extends URL {
+      static override createObjectURL = vi.fn(() => 'blob:test-evidence')
+      static override revokeObjectURL = vi.fn()
+    }
+  )
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+async function chooseMedia() {
+  const file = new File([Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)], 'test-evidence.jpg', {
+    type: 'image/jpeg',
+  })
+  await userEvent.setup().upload(screen.getByLabelText('Choose media'), file)
+  await waitFor(() => expect(service.metadata).toHaveBeenCalledTimes(1))
   fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
-  expect(screen.getByRole('alert')).toHaveTextContent('Choose an image')
-  fireEvent.click(screen.getByRole('button', { name: 'Use example image' }))
+  return file
+}
+function applyCoordinates() {
+  fireEvent.change(screen.getByLabelText('Latitude'), { target: { value: '-33.713' } })
+  fireEvent.change(screen.getByLabelText('Longitude'), { target: { value: '150.311' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply coordinates' }))
+}
+function review() {
+  fireEvent.submit(screen.getByRole('button', { name: 'Review report' }).closest('form')!)
+}
+
+test('submission validates context, preserves edits and assesses once while awaiting map approval', async () => {
+  const submit = vi.fn<(report: Omit<Report, 'id'>) => string>(() => 'HW-001')
+  render(<ImageUpload onClose={() => {}} onSubmit={submit} onViewReport={() => {}} />)
   fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
-  fireEvent.change(screen.getByLabelText(/Location/), { target: { value: '   ' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Review report' }))
+  expect(screen.getByRole('alert')).toHaveTextContent(/Choose an image.*video/)
+  expect(screen.queryByRole('button', { name: 'Use example image' })).not.toBeInTheDocument()
+  const file = await chooseMedia()
+  fireEvent.change(screen.getByLabelText(/^Location/), { target: { value: '   ' } })
+  review()
   expect(screen.getByRole('alert')).toHaveTextContent('Enter a location')
-  fireEvent.change(screen.getByLabelText(/Location/), { target: { value: ' Katoomba lookout ' } })
+  fireEvent.change(screen.getByLabelText(/^Location/), { target: { value: ' Katoomba lookout ' } })
+  review()
+  expect(screen.getByRole('alert')).toHaveTextContent('Confirm capture coordinates')
+  applyCoordinates()
+  const captureTime = captureTimeNow()
+  for (const date of ['2026-02-30T12:00', '2050-01-01T12:00']) {
+    fireEvent.change(screen.getByLabelText(/Captured at/), { target: { value: date } })
+    review()
+    expect(screen.getByRole('alert')).toHaveTextContent(/capture time/)
+    expect(
+      reportSchema.safeParse({
+        location: 'Katoomba lookout',
+        date,
+        source: 'Ground/Citizen',
+        notes: '',
+      }).success
+    ).toBe(false)
+  }
+  fireEvent.change(screen.getByLabelText(/Captured at/), { target: { value: captureTime } })
   fireEvent.change(screen.getByLabelText(/Field notes/), {
     target: { value: 'Smoke visible; extent uncertain.' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Review report' }))
+  review()
   fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-  expect(screen.getByLabelText(/Location/)).toHaveValue('Katoomba lookout')
+  expect(screen.getByLabelText(/^Location/)).toHaveValue('Katoomba lookout')
   expect(screen.getByLabelText(/Field notes/)).toHaveValue('Smoke visible; extent uncertain.')
-  fireEvent.click(screen.getByRole('button', { name: 'Review report' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Add demo report' }))
+  fireEvent.change(screen.getByLabelText(/Field notes/), {
+    target: { value: '  Edited evidence notes.  ' },
+  })
+  review()
+  const assess = screen.getByRole('button', { name: 'Assess severity' })
+  fireEvent.click(assess)
+  fireEvent.click(assess)
+  await screen.findByText('Awaiting approval for the map.')
+  expect(service.assess).toHaveBeenCalledTimes(1)
+  expect(service.metadata).toHaveBeenCalledWith(file, expect.any(AbortSignal))
+  expect(service.assess).toHaveBeenCalledWith(file, 'image', 'ground', expect.any(AbortSignal))
+  expect(fetch).not.toHaveBeenCalled()
   expect(submit).toHaveBeenCalledTimes(1)
   expect(submit).toHaveBeenCalledWith(
     expect.objectContaining({
       location: 'Katoomba lookout',
-      preview: '/prototype/assets/bushfire-screenshot.png',
+      notes: 'Edited evidence notes.',
+      preview: 'blob:test-evidence',
+      mediaType: 'image',
+      coordinates: { latitude: -33.713, longitude: 150.311, source: 'coordinates' },
+      assessment: expect.objectContaining({ severity: 'High', confidence: 85 }),
     })
   )
-  expect(screen.getByText('Unassessed')).toBeInTheDocument()
-  const context = submit.mock.calls[0]![0]
-  expect(reportSchema.safeParse({ ...context, date: '2026-02-30T12:00' }).success).toBe(false)
-  expect(reportSchema.safeParse({ ...context, date: '2026-09-15T12:00' }).success).toBe(false)
+  const report = submit.mock.calls[0]![0]
+  expect(report.approved).not.toBe(true)
+  expect(reportSchema.safeParse(report).success).toBe(true)
+})
+
+test('closing during assessment aborts the request and a late response cannot create a report', async () => {
+  let resolve!: (result: SeverityJson) => void
+  service.assess.mockReturnValueOnce(
+    new Promise<SeverityJson>((done) => {
+      resolve = done
+    })
+  )
+  const submit = vi.fn<(report: Omit<Report, 'id'>) => string>(() => 'HW-002')
+  const close = vi.fn()
+  const rendered = render(<ImageUpload onClose={close} onSubmit={submit} onViewReport={() => {}} />)
+  await chooseMedia()
+  fireEvent.change(screen.getByLabelText(/^Location/), { target: { value: 'Katoomba lookout' } })
+  applyCoordinates()
+  review()
+  fireEvent.click(screen.getByRole('button', { name: 'Assess severity' }))
+  await waitFor(() => expect(service.assess).toHaveBeenCalledTimes(1))
+  const signal = service.assess.mock.calls[0]![3] as AbortSignal
+  fireEvent.click(screen.getByRole('button', { name: 'Close submit media' }))
+  expect(close).toHaveBeenCalledTimes(1)
   rendered.unmount()
+  expect(signal.aborted).toBe(true)
+  await act(async () => {
+    resolve(assessment)
+  })
+  expect(submit).not.toHaveBeenCalled()
+})
+
+test('a metadata service failure still allows manual location entry for video', async () => {
+  service.metadata.mockRejectedValueOnce(new Error('Metadata service offline'))
+  render(<ImageUpload onClose={() => {}} onSubmit={() => 'HW-003'} onViewReport={() => {}} />)
+  const file = new File(['video'], 'evidence.mp4', { type: 'video/mp4' })
+  await userEvent.setup().upload(screen.getByLabelText('Choose media'), file)
+  await waitFor(() => expect(service.metadata).toHaveBeenCalledTimes(1))
+  fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+  await screen.findByText(/The local metadata service is unavailable/)
+  fireEvent.change(screen.getByLabelText(/^Location/), {
+    target: { value: 'Manual video location' },
+  })
+  applyCoordinates()
+  review()
+  expect(screen.getByRole('heading', { name: 'Check your report' })).toBeInTheDocument()
+  expect(service.assess).not.toHaveBeenCalled()
 })

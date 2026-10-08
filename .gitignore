@@ -58,3 +58,12 @@ docs/BOILERPLATE-BENCHMARK.md
 
 # Internal QA notes — not for the public repo
 docs/REPLICATION-LOG.md
+
+#Model
+*.pt
+
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+.venv/
