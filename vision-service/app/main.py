@@ -24,6 +24,7 @@ load_dotenv(_REPO_ROOT / ".env")
 load_dotenv(_PROJECT_ROOT / ".env")
 load_dotenv()
 
+from app import storage
 from app.chat import local_briefing
 from app.location import MAX_MEDIA_BYTES, extract_location
 from app.schemas import ChatRequest, ChatResponse, SeverityJson
@@ -58,24 +59,55 @@ def _default_model_path() -> Path:
 _MODEL_PATH = _default_model_path()
 
 
+def _resolve_model_path() -> Path:
+    """Where the checkpoint actually is, fetching it from COS if nowhere local.
+
+    A file already on disk always wins, so local development is unchanged.
+    In a container nothing is on disk - the .pt is gitignored and therefore
+    absent from a build-from-source image - so it comes from Object Storage
+    on first request and is cached for the life of the container.
+    """
+    configured = os.getenv("MODEL_PATH", "").strip()
+    target = Path(configured).expanduser() if configured else _MODEL_PATH
+    if target.is_file():
+        return target
+    if _MODEL_PATH.is_file():
+        return _MODEL_PATH
+
+    from app import storage
+
+    return storage.ensure_model(target)
+
+
 def get_model():
     global _MODEL
     if _MODEL is not None:
         return _MODEL
-    if not _MODEL_PATH.is_file():
+    try:
+        path = _resolve_model_path()
+    except Exception as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Model not found at {_MODEL_PATH}. Set MODEL_PATH.",
-        )
+            detail=(
+                f"Model unavailable: not found at {_MODEL_PATH} and could not be "
+                f"fetched from Object Storage ({e}). Set MODEL_PATH or configure COS_*."
+            ),
+        ) from e
+
     from app.inference import load_model
 
-    _MODEL = load_model(_MODEL_PATH)
+    _MODEL = load_model(path)
     return _MODEL
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "model_path": str(_MODEL_PATH), "model_loaded": _MODEL is not None}
+    return {
+        "ok": True,
+        "model_path": str(_MODEL_PATH),
+        "model_loaded": _MODEL is not None,
+        "object_storage": storage.is_configured(),
+    }
 
 
 @app.post("/v1/assess/image", response_model=SeverityJson)
@@ -92,6 +124,9 @@ async def assess_image(
 
         result = predict_image_bytes(model, data, modality=modality)
         result.explainability_note = local_briefing(result)
+        # Keep the evidence alongside the verdict. Returns None when COS is
+        # not configured; never allowed to fail the request.
+        result.media_key = storage.upload_media(data, file.filename or "", file.content_type)
         return result
     except HTTPException:
         raise
@@ -125,6 +160,9 @@ async def assess_video(
 
         result = predict_video_bytes(model, data, modality=modality)
         result.explainability_note = local_briefing(result)
+        # Keep the evidence alongside the verdict. Returns None when COS is
+        # not configured; never allowed to fail the request.
+        result.media_key = storage.upload_media(data, file.filename or "", file.content_type)
         return result
     except HTTPException:
         raise
