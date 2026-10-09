@@ -124,6 +124,8 @@ async def assess_image(
 
         result = predict_image_bytes(model, data, modality=modality)
         result.explainability_note = local_briefing(result)
+        if result.needs_review and result.review_reason:
+            result.explainability_note = f"{result.review_reason} {result.explainability_note or ''}".strip()
         # Keep the evidence alongside the verdict. Returns None when COS is
         # not configured; never allowed to fail the request.
         result.media_key = storage.upload_media(data, file.filename or "", file.content_type)
@@ -160,6 +162,8 @@ async def assess_video(
 
         result = predict_video_bytes(model, data, modality=modality)
         result.explainability_note = local_briefing(result)
+        if result.needs_review and result.review_reason:
+            result.explainability_note = f"{result.review_reason} {result.explainability_note or ''}".strip()
         # Keep the evidence alongside the verdict. Returns None when COS is
         # not configured; never allowed to fail the request.
         result.media_key = storage.upload_media(data, file.filename or "", file.content_type)

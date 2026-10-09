@@ -28,6 +28,8 @@ class SeverityJson(BaseModel):
     location: Optional[LocationMeta] = None
     explainability_note: Optional[str] = None
     media_key: Optional[str] = None
+    needs_review: bool = False
+    review_reason: Optional[str] = None
     duration_sec: Optional[float] = None
     frames_sampled: Optional[int] = None
     severity_frame_counts: Optional[dict[str, int]] = None

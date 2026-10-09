@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import tempfile
 from collections import Counter
@@ -21,6 +22,10 @@ Image.MAX_IMAGE_PIXELS = None
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+
+# Below this top-class probability a non-"none" verdict is treated as unreliable
+# (e.g. everyday photos that the model has never seen score ~0.35 across 3 classes).
+MIN_SEVERITY_CONFIDENCE = float(os.getenv("MIN_SEVERITY_CONFIDENCE", "0.5"))
 
 DEFAULT_SEVERITY = ("none", "low", "moderate", "high", "extreme")
 DEFAULT_FEATURES = (
@@ -115,10 +120,22 @@ def _predict_pil(bundle: dict[str, Any], img: Image.Image, modality: str) -> dic
     }
 
 
+def apply_confidence_gate(result: SeverityJson) -> SeverityJson:
+    """Flag shaky verdicts for human review and drop the (unreliable) feature claims."""
+    if result.severity != "none" and result.severity_confidence < MIN_SEVERITY_CONFIDENCE:
+        result.needs_review = True
+        result.review_reason = (
+            f"Low confidence ({result.severity_confidence:.0%} for '{result.severity}'). "
+            "This may not be a bushfire scene - human review required."
+        )
+        result.key_features = []
+    return result
+
+
 def predict_image_bytes(bundle: dict[str, Any], data: bytes, modality: str = "drone") -> SeverityJson:
     img = Image.open(io.BytesIO(data)).convert("RGB")
     result = _predict_pil(bundle, img, modality)
-    return SeverityJson(input_type="image", **result)
+    return apply_confidence_gate(SeverityJson(input_type="image", **result))
 
 
 def aggregate_video_predictions(
@@ -251,7 +268,7 @@ def predict_video_bytes(
         summary = aggregate_video_predictions(preds, severity_rule="mode")
         sev_names = bundle["cfg"]["severity_names"]
         overall = summary["overall_severity"]
-        return SeverityJson(
+        return apply_confidence_gate(SeverityJson(
             input_type="video",
             severity=overall,
             severity_confidence=float(summary["overall_severity_confidence"]),
@@ -265,6 +282,6 @@ def predict_video_bytes(
             frames_sampled=len(chosen),
             severity_frame_counts=summary.get("severity_frame_counts"),
             explainability_note=None,
-        )
+        ))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
