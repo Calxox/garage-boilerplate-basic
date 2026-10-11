@@ -7,6 +7,7 @@ import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { EmptyState } from '@/components/shared/EmptyState'
 import {
   filterIncidents,
+  sortIncidentsBySeverity,
   approvalError,
   reportToIncident,
   viewLabels,
@@ -50,7 +51,6 @@ export function HazardWorkspace() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [severity, setSeverity] = useState<SeverityFilter>('All')
-  const [query, setQuery] = useState('')
   const [visibleIds, setVisibleIds] = useState<string[] | null>(null)
   const [reports, setReports] = useState<Report[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -65,10 +65,7 @@ export function HazardWorkspace() {
   const chatGeneration = useRef({ value: 0 })
   const objectUrls = useRef(new Set<string>())
   const main = useRef<HTMLElement>(null)
-  const filtered = useMemo(
-    () => filterIncidents(incidents, severity, query),
-    [incidents, severity, query]
-  )
+  const filtered = useMemo(() => filterIncidents(incidents, severity), [incidents, severity])
   const visible =
     visibleIds === null ? filtered : filtered.filter((item) => visibleIds.includes(item.id))
   const selected = incidents.find((item) => item.id === selectedId) ?? incidents[0]
@@ -104,7 +101,6 @@ export function HazardWorkspace() {
   }
   function clearFilters() {
     setSeverity('All')
-    setQuery('')
     setVisibleIds(null)
     setResetKey((value) => value + 1)
     setMapFocusId(null)
@@ -178,7 +174,9 @@ export function HazardWorkspace() {
       current.map((item) => (item.id === report.id ? { ...item, approved: true } : item))
     )
     setIncidents((current) =>
-      current.some((item) => item.id === incident.id) ? current : [incident, ...current]
+      current.some((item) => item.id === incident.id)
+        ? current
+        : sortIncidentsBySeverity([incident, ...current])
     )
     clearFilters()
     setSelectedId(incident.id)
@@ -260,13 +258,8 @@ export function HazardWorkspace() {
                 />
                 <ReportFilters
                   severity={severity}
-                  query={query}
                   onSeverity={(level) => {
                     setSeverity(level)
-                    setVisibleIds(null)
-                  }}
-                  onQuery={(value) => {
-                    setQuery(value)
                     setVisibleIds(null)
                   }}
                   onClear={clearFilters}

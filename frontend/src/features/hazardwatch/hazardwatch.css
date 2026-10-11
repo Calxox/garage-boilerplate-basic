@@ -528,6 +528,19 @@
 .hw-selection .hw-text-button {
   margin-top: 5px;
 }
+.hw-directions {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hw-line);
+}
+.hw-directions .hw-inline-actions {
+  gap: 8px;
+  margin-top: 10px;
+}
+.hw-directions .hw-button {
+  font-size: 12px;
+  padding: 9px 12px;
+}
 .hw-filters {
   display: flex;
   align-items: center;
@@ -555,10 +568,7 @@
   box-shadow: 0 1px 3px #23392b12;
   font-weight: 600;
 }
-.hw-filter-search {
-  flex: 1;
-  min-width: 180px;
-}
+
 .hw-app input,
 .hw-app select,
 .hw-app textarea {
@@ -637,6 +647,17 @@
 .hw-map .map-presets button:hover {
   background: #eaf0e1;
 }
+.hw-map .map-presets button[aria-pressed='true'] {
+  border-color: var(--hw-ink);
+  background: #eaf0e1;
+  font-weight: 600;
+}
+.hw-map .state-presets {
+  display: contents;
+}
+.hw-map .state-presets[hidden] {
+  display: none;
+}
 .hw-map #area-results {
   padding: 0 20px;
 }
@@ -675,7 +696,7 @@
   border-top: 1px solid var(--hw-line);
 }
 .hw-map .area-status > small {
-  display: none;
+  color: var(--hw-muted);
 }
 .hw-map .area-status > span {
   color: var(--hw-muted);
@@ -694,6 +715,10 @@
 }
 .hw-map .leaflet-container {
   font-family: inherit;
+}
+/* Keep street tiles opaque above the offline country outlines. */
+.hw-map .leaflet-container img.leaflet-tile {
+  mix-blend-mode: normal;
 }
 .hw-map .leaflet-control-zoom a {
   width: 42px;
@@ -1356,10 +1381,7 @@
     padding: 8px;
     font-size: 12px;
   }
-  .hw-filter-search {
-    min-width: 0;
-    flex-basis: 70%;
-  }
+
   .hw-map .area-search {
     padding: 16px 12px 8px;
   }
@@ -1375,8 +1397,11 @@
   .hw-map .map-presets {
     padding-inline: 12px;
   }
-  .hw-map .map-presets button {
+  .hw-map .map-presets > button {
     flex: 1 1 40%;
+  }
+  .hw-map .state-presets button {
+    flex: 1 0 44px;
   }
   .hw-map .area-status {
     padding: 14px 12px;

@@ -38,6 +38,8 @@ export function LocationInput({
   const [notice, setNotice] = useState('')
   const request = useRef(0)
   const entered = coordinatesFromText(latitude, longitude)
+  const latitudeInvalid = latitude.trim().length > 0 && !coordinatesFromText(latitude, '0')
+  const longitudeInvalid = longitude.trim().length > 0 && !coordinatesFromText('0', longitude)
   useEffect(
     () => () => {
       request.current++
@@ -253,12 +255,19 @@ export function LocationInput({
             inputMode="decimal"
             value={latitude}
             placeholder="-33.87"
+            aria-invalid={latitudeInvalid || undefined}
+            aria-describedby={latitudeInvalid ? 'hw-latitude-error' : undefined}
             onChange={(event) => {
               invalidate()
               setLatitude(event.target.value)
               onChange(location, undefined)
             }}
           />
+          {latitudeInvalid && (
+            <small id="hw-latitude-error" className="hw-error" role="status">
+              Latitude must be decimal degrees from -90 to 90.
+            </small>
+          )}
         </div>
         <div className="hw-field">
           <label htmlFor="hw-longitude">Longitude</label>
@@ -268,12 +277,19 @@ export function LocationInput({
             inputMode="decimal"
             value={longitude}
             placeholder="151.21"
+            aria-invalid={longitudeInvalid || undefined}
+            aria-describedby={longitudeInvalid ? 'hw-longitude-error' : undefined}
             onChange={(event) => {
               invalidate()
               setLongitude(event.target.value)
               onChange(location, undefined)
             }}
           />
+          {longitudeInvalid && (
+            <small id="hw-longitude-error" className="hw-error" role="status">
+              Longitude must be decimal degrees from -180 to 180.
+            </small>
+          )}
         </div>
       </div>
       <div className="hw-inline-actions">

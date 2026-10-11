@@ -10,6 +10,7 @@ import {
   type SeverityFilter,
 } from '@/features/hazardwatch/model'
 import { ScreenHeader, SeverityBadge, RichText } from './ui'
+import { HazardDirections } from './HazardDirections'
 
 export function PriorityList({
   items,
@@ -75,11 +76,12 @@ export function PriorityList({
         />
       )}
       {selected && (
-        <div className="hw-selection">
+        <div className="hw-selection" role="region" aria-label="Selected hazard">
           <h3>{selected.name}</h3>
           <p>
             <RichText text={selected.explainability || selected.reason} />
           </p>
+          <HazardDirections incident={selected} />
           <button className="hw-text-button" onClick={() => onInspect(selected.id)}>
             Inspect evidence <ArrowRight size={16} />
           </button>
@@ -155,15 +157,11 @@ export function Overview({
 
 export function ReportFilters({
   severity,
-  query,
   onSeverity,
-  onQuery,
   onClear,
 }: {
   severity: SeverityFilter
-  query: string
   onSeverity: (level: SeverityFilter) => void
-  onQuery: (query: string) => void
   onClear: () => void
 }) {
   return (
@@ -175,19 +173,7 @@ export function ReportFilters({
           </button>
         ))}
       </div>
-      <div className="hw-filter-search">
-        <label htmlFor="hw-report-search" className="hw-sr-only">
-          Filter reports
-        </label>
-        <input
-          id="hw-report-search"
-          type="search"
-          placeholder="Filter reports by name…"
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-        />
-      </div>
-      {(severity !== 'All' || query) && (
+      {severity !== 'All' && (
         <button className="hw-text-button" onClick={onClear}>
           Clear
         </button>

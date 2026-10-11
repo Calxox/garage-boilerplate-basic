@@ -3,14 +3,25 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import { HazardWorkspace } from '@/features/hazardwatch/components/HazardWorkspace'
 import { ClassificationResult } from '@/features/hazardwatch/components/ClassificationResult'
-import { reportToIncident, type Incident, type Report } from '@/features/hazardwatch/model'
+import { HazardDirections } from '@/features/hazardwatch/components/HazardDirections'
+import { ReportFilters } from '@/features/hazardwatch/components/Screens'
+import {
+  filterIncidents,
+  reportToIncident,
+  sortIncidentsBySeverity,
+  type Incident,
+  type Report,
+  type Severity,
+} from '@/features/hazardwatch/model'
+import type { Coordinates } from '@/features/hazardwatch/location'
 
 const fixtures = vi.hoisted(() => ({
   coordinates: {
     latitude: -41.28664,
     longitude: 174.77557,
     source: 'coordinates',
-  } as { latitude: number; longitude: number; source: 'coordinates' } | undefined,
+  } as Coordinates | undefined,
+  severity: 'High' as Severity,
   chat: vi.fn(),
 }))
 
@@ -19,17 +30,19 @@ vi.mock('@/features/hazardwatch/api', async (importOriginal) => ({
   chatAboutAssessment: fixtures.chat,
 }))
 vi.mock('@/features/hazardwatch/components/HazardMap', () => ({
-  HazardMap: ({ items }: { items: Incident[] }) => (
+  HazardMap: ({ items, onSelect }: { items: Incident[]; onSelect: (id: string) => void }) => (
     <div aria-label="Test map">
       {items.map((item) => (
-        <span
+        <button
+          type="button"
+          onClick={() => onSelect(item.id)}
           key={item.id}
           data-testid={`marker-${item.id}`}
           data-lat={item.lat}
           data-lng={item.lng}
         >
           {item.name}
-        </span>
+        </button>
       ))}
     </div>
   ),
@@ -44,7 +57,11 @@ vi.mock('@/features/hazardwatch/components/ImageUpload', () => ({
   }) => (
     <button
       onClick={() => {
-        onSubmit({ ...testReport, coordinates: fixtures.coordinates })
+        onSubmit({
+          ...testReport,
+          coordinates: fixtures.coordinates,
+          assessment: { ...testReport.assessment!, severity: fixtures.severity },
+        })
         onClose()
       }}
     >
@@ -81,6 +98,7 @@ beforeEach(() => {
     longitude: 174.77557,
     source: 'coordinates',
   }
+  fixtures.severity = 'High'
   fixtures.chat.mockReset()
   window.history.replaceState(null, '', '#overview')
   HTMLDialogElement.prototype.showModal = function () {
@@ -105,7 +123,9 @@ async function approveReport() {
   await openView('Media reports', 'Media reports')
   fireEvent.click(screen.getByRole('button', { name: 'Review report' }))
   fireEvent.click(screen.getByRole('button', { name: 'Approve and add to map' }))
-  return within(await screen.findByLabelText('Test map')).findByText('Wellington test report')
+  return (
+    await within(await screen.findByLabelText('Test map')).findAllByText('Wellington test report')
+  )[0]!
 }
 async function setView(view: string) {
   await act(async () => {
@@ -113,6 +133,118 @@ async function setView(view: string) {
     window.dispatchEvent(new HashChangeEvent('hashchange'))
   })
 }
+
+test('severity order covers every level, preserves equal-level order, and does not mutate inputs', () => {
+  const items: Incident[] = [
+    { ...testIncident, id: 'high-first', severity: 'High' },
+    { ...testIncident, id: 'low-first', severity: 'Low' },
+    { ...testIncident, id: 'none', severity: 'None' },
+    { ...testIncident, id: 'high-second', severity: 'High' },
+    { ...testIncident, id: 'moderate', severity: 'Moderate' },
+    { ...testIncident, id: 'extreme', severity: 'Extreme' },
+    { ...testIncident, id: 'low-second', severity: 'Low' },
+  ]
+  const original = [...items]
+  const sorted = sortIncidentsBySeverity(items)
+  expect(sorted.map((item) => item.id)).toEqual([
+    'extreme',
+    'high-first',
+    'high-second',
+    'moderate',
+    'low-first',
+    'low-second',
+    'none',
+  ])
+  expect(sorted).not.toBe(items)
+  expect(items).toEqual(original)
+  expect(sortIncidentsBySeverity([])).toEqual([])
+})
+
+test('severity filters preserve order and coordinate-only reports', () => {
+  const low = { ...testIncident, id: 'low', severity: 'Low' as const }
+  const unknown = { ...testIncident, id: 'unknown', countryCode: undefined, region: undefined }
+  const items = [testIncident, low, unknown]
+  expect(filterIncidents(items)).toEqual(items)
+  expect(filterIncidents(items, 'High')).toEqual([testIncident, unknown])
+  expect(filterIncidents(items, 'Low')).toEqual([low])
+  expect(filterIncidents(items, 'Extreme')).toEqual([])
+})
+
+test('report filters retain severity and clear without the removed geography or name controls', () => {
+  const props = { severity: 'Low' as const, onSeverity: vi.fn(), onClear: vi.fn() }
+  const rendered = render(<ReportFilters {...props} />)
+  expect(screen.getByRole('group', { name: 'Filter by severity' })).toBeInTheDocument()
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  expect(screen.queryByPlaceholderText('Filter reports by name...')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'High' }))
+  expect(props.onSeverity).toHaveBeenCalledWith('High')
+  fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+  expect(props.onClear).toHaveBeenCalledOnce()
+  rendered.rerender(<ReportFilters {...props} severity="All" />)
+  expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
+})
+
+test('a later low-severity approval follows high severity in both queues and marker order', async () => {
+  fixtures.coordinates = {
+    latitude: -41.28664,
+    longitude: 174.77557,
+    source: 'address',
+    countryCode: 'NZ',
+    region: 'Wellington',
+  }
+  render(<HazardWorkspace />)
+  await addReport()
+  await approveReport()
+  await openView('Overview', 'Bushfire overview')
+  fixtures.severity = 'Low'
+  fixtures.coordinates = {
+    latitude: -37.8136,
+    longitude: 144.9631,
+    source: 'address',
+    countryCode: 'AU',
+    region: 'Victoria',
+  }
+  await addReport()
+  await approveReport()
+  const expectQueueOrder = () => {
+    const rows = within(screen.getByRole('region', { name: 'Review queue' })).getAllByRole(
+      'listitem'
+    )
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]!).getByText('High', { exact: true })).toBeInTheDocument()
+    expect(within(rows[1]!).getByText('Low', { exact: true })).toBeInTheDocument()
+  }
+  expectQueueOrder()
+  expect(
+    within(screen.getByLabelText('Test map'))
+      .getAllByRole('button')
+      .map((marker) => marker.getAttribute('data-testid'))
+  ).toEqual(['marker-HW-001', 'marker-HW-002'])
+  await openView('Overview', 'Bushfire overview')
+  expectQueueOrder()
+  await openView('Hazard map', 'Hazard map')
+  expectQueueOrder()
+  fireEvent.click(
+    within(screen.getByRole('group', { name: 'Filter by severity' })).getByRole('button', {
+      name: 'Low',
+    })
+  )
+  const filteredRows = within(screen.getByRole('region', { name: 'Review queue' })).getAllByRole(
+    'listitem'
+  )
+  expect(filteredRows).toHaveLength(1)
+  expect(within(filteredRows[0]!).getByText('Low', { exact: true })).toBeInTheDocument()
+  expect(within(screen.getByLabelText('Test map')).getAllByRole('button')[0]).toHaveAttribute(
+    'data-testid',
+    'marker-HW-002'
+  )
+  expect(screen.queryByRole('combobox', { name: 'Country' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('combobox', { name: 'State / region' })).not.toBeInTheDocument()
+  expect(screen.queryByPlaceholderText('Filter reports by name...')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+  expectQueueOrder()
+  expect(within(screen.getByLabelText('Test map')).getAllByRole('button')).toHaveLength(2)
+})
 
 test('every initial workspace view is empty and has no sample data, reset or guided tour', async () => {
   render(<HazardWorkspace />)
@@ -266,16 +398,62 @@ test('uploaded video assessments retain video evidence and their own capture dat
   expect(screen.queryByText(/Reference photograph/)).not.toBeInTheDocument()
 })
 
+test('state names and abbreviations return an Australian state before similarly named places', () => {
+  const mapApi = createRequire(import.meta.url)('../../public/prototype/map.js')
+  for (const [code, name] of [
+    ['NSW', 'New South Wales'],
+    ['VIC', 'Victoria'],
+    ['QLD', 'Queensland'],
+    ['SA', 'South Australia'],
+    ['WA', 'Western Australia'],
+    ['TAS', 'Tasmania'],
+    ['ACT', 'Australian Capital Territory'],
+    ['NT', 'Northern Territory'],
+  ]) {
+    for (const query of [code, name, name!.toLowerCase()]) {
+      const first = mapApi.searchPlaces(query)[0]
+      expect(first?.place[0].replace(/^State of /, '')).toBe(name)
+      expect(first?.place[2]).toBe('AU')
+      expect(first?.place[5]).toBe(7)
+    }
+  }
+})
+
 test('the map preserves offline locations, plots actual report coordinates and selects full addresses without stale results', async () => {
   const mapApi = createRequire(import.meta.url)('../../public/prototype/map.js')
-  const plots: { point: number[]; icon: { className: string; html: string } }[] = []
+  const plots: {
+    point: number[]
+    icon: { className: string; html: string }
+    zIndexOffset?: number
+    riseOnHover?: boolean
+    title?: string
+    alt?: string
+    events: Record<string, () => void>
+    tooltip?: string
+  }[] = []
   const layer = { clearLayers() {}, addTo: () => layer }
+  const tileEvents: Record<string, () => void> = {}
+  const tiles = {
+    on: (event: string, handler: () => void) => {
+      tileEvents[event] = handler
+      return tiles
+    },
+    addTo: vi.fn(() => tiles),
+  }
+  const tileLayer = vi.fn(() => tiles)
+  const mapEvents: Record<string, () => void> = {}
+  const panes: Record<string, { style: Record<string, string | number> }> = {}
+  const geoJSON = vi.fn((_data: unknown, _options: unknown) => layer)
   const fakeMap = {
     stop() {},
-    fitBounds() {},
-    createPane() {},
-    getPane: () => ({ style: {} }),
-    on() {},
+    fitBounds: vi.fn(),
+    createPane(name: string) {
+      panes[name] = { style: {} }
+    },
+    getPane: (name: string) => panes[name]!,
+    on(event: string, handler: () => void) {
+      mapEvents[event] = handler
+    },
     off() {},
     remove() {},
     getCenter: () => ({ lat: -25, lng: 135 }),
@@ -289,52 +467,259 @@ test('the map preserves offline locations, plots actual report coordinates and s
   const originalL = Reflect.get(window, 'L')
   Reflect.set(window, 'L', {
     map: () => fakeMap,
+    tileLayer,
     layerGroup: () => layer,
-    geoJSON: () => layer,
+    geoJSON,
     circleMarker: () => ({ addTo() {} }),
     divIcon: (icon: object) => icon,
-    marker: (point: number[], options: { icon: { className: string; html: string } }) => {
-      plots.push({ point, icon: options.icon })
-      const marker = { on: () => marker, addTo: () => marker, bindTooltip: () => marker }
+    marker: (
+      point: number[],
+      options: Omit<(typeof plots)[number], 'point' | 'events' | 'tooltip'>
+    ) => {
+      const plot: (typeof plots)[number] = { point, ...options, events: {} }
+      plots.push(plot)
+      const marker = {
+        on: (event: string, handler: () => void) => {
+          plot.events[event] = handler
+          return marker
+        },
+        addTo: () => marker,
+        bindTooltip: (tooltip: string) => {
+          plot.tooltip = tooltip
+          return marker
+        },
+      }
       return marker
     },
   })
   const container = document.createElement('div')
   document.body.append(container)
   const items = [
-    { ...testIncident, id: 'SYD', name: 'Sydney', lat: -33.87, lng: 151.21 },
-    { ...testIncident, id: 'WLG', name: 'Wellington', lat: -41.28, lng: 174.77 },
-    { ...testIncident, id: 'CHT', name: 'Chatham', lat: -43.95, lng: -176.5 },
+    {
+      ...testIncident,
+      id: 'SYD',
+      name: 'Sydney',
+      lat: -33.87,
+      lng: 151.21,
+      countryCode: 'AU',
+      region: 'NSW',
+    },
+    {
+      ...testIncident,
+      id: 'WLG',
+      name: 'Wellington',
+      lat: -41.28,
+      lng: 174.77,
+      countryCode: 'NZ',
+      region: 'Wellington',
+    },
+    {
+      ...testIncident,
+      id: 'CHT',
+      name: 'Chatham',
+      lat: -43.95,
+      lng: -176.5,
+      countryCode: 'NZ',
+      region: 'Chatham Islands',
+    },
+    {
+      ...testIncident,
+      id: 'VIC',
+      name: 'Melbourne',
+      lat: -37.81,
+      lng: 144.96,
+      countryCode: 'AU',
+      region: 'Victoria',
+    },
+    {
+      ...testIncident,
+      id: 'WA',
+      name: 'Perth',
+      lat: -31.95,
+      lng: 115.86,
+      countryCode: 'AU',
+      region: 'Western Australia',
+    },
+    {
+      ...testIncident,
+      id: 'GPS',
+      name: 'Unknown state',
+      lat: -37.82,
+      lng: 144.95,
+      countryCode: undefined,
+      region: undefined,
+    },
     { ...testIncident, id: 'BAD', lat: NaN, lng: 150 },
+    { ...testIncident, id: 'INFINITY', lat: -33, lng: Infinity },
+    { ...testIncident, id: 'NULL', lat: null, lng: 150 },
+    { ...testIncident, id: 'INVALID-LAT', lat: -91, lng: 150 },
+    { ...testIncident, id: 'INVALID-LNG', lat: -33, lng: 185 },
+    null,
   ]
+  const order = items.flatMap((item) => (item ? [item.id] : []))
   try {
     mapApi.reset()
     container.innerHTML = mapApi.html()
     const visible = vi.fn()
+    const selected = vi.fn()
     const searchAddresses = vi.fn()
     mapApi.mount({
       searchAddresses,
       items,
-      order: items.map((item) => item.id),
-      onSelect() {},
+      order,
+      onSelect: selected,
       onViewChange: visible,
     })
+    const geography: {
+      countries: { features: { geometry: { coordinates: number[][][][] } }[] }
+    } = createRequire(import.meta.url)('../../public/prototype/assets/geography.js')
+    const countryRings = geography.countries.features.flatMap((country) =>
+      country.geometry.coordinates.map((polygon) =>
+        polygon[0]!.map(([lng, lat]) => [lng! <= -170 ? lng! + 360 : lng!, lat!])
+      )
+    )
+    expect(countryRings).toHaveLength(120)
+    expect(countryRings.some((ring) => ring.some(([lng, lat]) => lng! > 180 && lat! < -43))).toBe(
+      true
+    )
+    const maskCall = geoJSON.mock.calls.find(
+      (call) => (call[1] as { pane?: string })?.pane === 'coverage-mask'
+    )
+    const mask = maskCall?.[0] as { type: string; coordinates: number[][][] } | undefined
+    expect(mask?.type).toBe('Polygon')
+    expect(mask?.coordinates).toHaveLength(countryRings.length + 1)
+    expect(mask?.coordinates[0]).toEqual([
+      [-540, -85],
+      [540, -85],
+      [540, 85],
+      [-540, 85],
+      [-540, -85],
+    ])
+    expect(JSON.stringify(mask?.coordinates.slice(1)) === JSON.stringify(countryRings)).toBe(true)
+    expect(maskCall?.[1]).toMatchObject({
+      pane: 'coverage-mask',
+      interactive: false,
+      style: {
+        stroke: false,
+        fillColor: '#cfe3e9',
+        fillOpacity: 1,
+        fillRule: 'evenodd',
+        smoothFactor: 0,
+      },
+    })
+    const fallbackCall = geoJSON.mock.calls.find(
+      (call) => (call[1] as { pane?: string })?.pane === 'country-outline'
+    )
+    const fallback = fallbackCall?.[0] as { type: string; coordinates: number[][][][] } | undefined
+    expect(fallback?.type).toBe('MultiPolygon')
+    expect(fallback?.coordinates).toHaveLength(countryRings.length)
+    expect(
+      JSON.stringify(fallback?.coordinates) === JSON.stringify(countryRings.map((ring) => [ring]))
+    ).toBe(true)
+    expect(panes['coverage-mask']!.style).toEqual({ zIndex: 350, pointerEvents: 'none' })
     const hazards = plots.filter((plot) => plot.icon.className.includes('hazard-marker'))
     expect(hazards.map((plot) => plot.point)).toEqual([
       [-33.87, 151.21],
       [-41.28, 174.77],
       [-43.95, 183.5],
+      [-37.81, 144.96],
+      [-31.95, 115.86],
+      [-37.82, 144.95],
     ])
     expect(hazards.map((plot) => plot.icon.html)).toEqual([
       '<span>1</span>',
       '<span>2</span>',
       '<span>3</span>',
+      '<span>4</span>',
+      '<span>5</span>',
+      '<span>6</span>',
     ])
-    expect(visible).toHaveBeenCalledWith(['SYD', 'WLG', 'CHT'])
+    expect(visible).toHaveBeenCalledWith(['SYD', 'WLG', 'CHT', 'VIC', 'WA', 'GPS'])
+    expect(hazards.map((plot) => plot.zIndexOffset)).toEqual([
+      order.length,
+      order.length - 1,
+      order.length - 2,
+      order.length - 3,
+      order.length - 4,
+      order.length - 5,
+    ])
+    expect(hazards.every((plot) => plot.riseOnHover)).toBe(true)
+    const chatham = hazards[2]!
+    expect(chatham.title).toContain('-43.950000, -176.500000')
+    expect(chatham.alt).toContain('-43.950000, -176.500000')
+    expect(chatham.tooltip).toContain('-43.950000, -176.500000')
+    chatham.events.click!()
+    expect(selected).toHaveBeenCalledWith('CHT')
+    expect(tileLayer).toHaveBeenCalledWith(
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      expect.objectContaining({
+        maxZoom: 18,
+        attribution: expect.stringContaining('OpenStreetMap'),
+      })
+    )
+    expect(tiles.addTo).toHaveBeenCalledWith(fakeMap)
+    const tileStatus = container.querySelector('#map-tile-status')!
+    tileEvents.loading!()
+    expect(tileStatus).toBeVisible()
+    tileEvents.tileerror!()
+    tileEvents.load!()
+    expect(tileStatus).toHaveTextContent('Report markers and location search still work.')
+    expect(tileStatus).toBeVisible()
+    tileEvents.loading!()
+    tileEvents.load!()
+    expect(tileStatus).not.toBeVisible()
     mapApi.focusIncident(items[2])
     expect(fakeMap.setView).toHaveBeenCalledWith([-43.95, 183.5], 12, { animate: false })
     expect(items[2]!.lng).toBe(-176.5)
     expect(container.querySelector('[data-area-scope="blue"]')).toBeNull()
+    const coverage = within(container).getByRole('group', { name: 'Map coverage' })
+    expect(
+      within(coverage)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Both countries', 'Australia', 'New Zealand'])
+    const states = container.querySelector(
+      '[aria-label="Australian states and territories"]'
+    ) as HTMLElement
+    expect(states).not.toBeVisible()
+    expect(
+      Array.from(states.querySelectorAll('[data-state-code]')).map((button) =>
+        button.getAttribute('data-state-code')
+      )
+    ).toEqual(['NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'ACT', 'NT'])
+    fireEvent.click(within(coverage).getByRole('button', { name: 'Australia' }))
+    expect(states).toBeVisible()
+    expect(visible).toHaveBeenLastCalledWith(['SYD', 'VIC', 'WA', 'GPS'])
+    const australiaBounds = fakeMap.fitBounds.mock.lastCall![0]
+    plots.length = 0
+    fireEvent.click(states.querySelector('[data-state-code="VIC"]')!)
+    expect(visible).toHaveBeenLastCalledWith(['VIC'])
+    expect(
+      plots
+        .filter((plot) => plot.icon.className.includes('hazard-marker'))
+        .map((plot) => plot.point)
+    ).toEqual([[-37.81, 144.96]])
+    expect(
+      plots
+        .filter((plot) => plot.icon.className.includes('hazard-marker'))
+        .map((plot) => plot.icon.html)
+    ).toEqual(['<span>1</span>'])
+    expect(fakeMap.fitBounds.mock.lastCall![0]).not.toEqual(australiaBounds)
+    expect(container.querySelector('#selected-area-label')).toHaveTextContent('Victoria')
+    expect(states.querySelector('[data-state-code="VIC"]')).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(states.querySelector('[data-state-code="NSW"]')!)
+    expect(visible).toHaveBeenLastCalledWith(['SYD'])
+    fireEvent.click(states.querySelector('[data-state-code="WA"]')!)
+    expect(visible).toHaveBeenLastCalledWith(['WA'])
+    fireEvent.click(within(coverage).getByRole('button', { name: 'New Zealand' }))
+    expect(states).not.toBeVisible()
+    expect(visible).toHaveBeenLastCalledWith(['WLG', 'CHT'])
+    fireEvent.click(within(coverage).getByRole('button', { name: 'Australia' }))
+    expect(visible).toHaveBeenLastCalledWith(['SYD', 'VIC', 'WA', 'GPS'])
+    expect(states.querySelector('[aria-pressed="true"]')).toBeNull()
+    fireEvent.click(within(coverage).getByRole('button', { name: 'Both countries' }))
+    expect(states).not.toBeVisible()
+    expect(visible).toHaveBeenLastCalledWith(['SYD', 'WLG', 'CHT', 'VIC', 'WA', 'GPS'])
     const address = {
       label: '257 Test Road, Glenroy, Victoria, Australia',
       coordinates: { latitude: -37.81, longitude: 144.96, source: 'address' },
@@ -342,6 +727,51 @@ test('the map preserves offline locations, plots actual report coordinates and s
     searchAddresses.mockResolvedValueOnce([address])
     const field = container.querySelector('#area-query') as HTMLInputElement
     const form = container.querySelector('#area-search-form')!
+    fireEvent.input(field, { target: { value: 'Victoria' } })
+    fireEvent.submit(form)
+    const firstStateResult = within(
+      container.querySelector('#area-results') as HTMLElement
+    ).getAllByRole('button')[0]!
+    expect(firstStateResult).toHaveTextContent('Victoria')
+    fireEvent.click(firstStateResult)
+    expect(states).toBeVisible()
+    expect(visible).toHaveBeenLastCalledWith(['VIC'])
+    expect(states.querySelector('[data-state-code="VIC"]')).toHaveAttribute('aria-pressed', 'true')
+    expect(searchAddresses).not.toHaveBeenCalled()
+    fireEvent.click(within(coverage).getByRole('button', { name: 'Both countries' }))
+    fakeMap.setView.mockClear()
+    for (const query of [
+      '-40, 185',
+      '-40, 190',
+      '-91, 150',
+      '51, 150',
+      '-40, Infinity',
+      'NaN, 150',
+      '-40,',
+      ', 170',
+      '-40, 170, 150',
+    ]) {
+      expect(mapApi.parseCoordinates(query)).toBeNull()
+      fireEvent.input(field, { target: { value: query } })
+      fireEvent.submit(form)
+      expect(container.querySelector('#area-results')).toHaveTextContent(/latitude, longitude/i)
+      expect(searchAddresses).not.toHaveBeenCalled()
+      expect(fakeMap.setView).not.toHaveBeenCalled()
+    }
+    mapApi.focusIncident(null)
+    expect(fakeMap.setView).not.toHaveBeenCalled()
+    expect(mapApi.parseCoordinates('-40., +170.')).toEqual({ lat: -40, lng: 170 })
+    expect(mapApi.parseCoordinates('--40, 170')).toBeNull()
+    fireEvent.input(field, { target: { value: '-40., +170.' } })
+    fireEvent.submit(form)
+    expect(fakeMap.setView).toHaveBeenCalledWith([-40, 170], 12, { animate: false })
+    fireEvent.input(field, { target: { value: '-43.95, -176.5' } })
+    fireEvent.submit(form)
+    expect(fakeMap.setView).toHaveBeenCalledWith([-43.95, 183.5], 12, { animate: false })
+    expect(container.querySelector('#selected-area-context')).toHaveTextContent(
+      '-43.950000, -176.500000'
+    )
+    expect(searchAddresses).not.toHaveBeenCalled()
     fireEvent.input(field, { target: { value: '257 Test Road' } })
     expect(searchAddresses).not.toHaveBeenCalled()
     fireEvent.submit(form)
@@ -369,9 +799,90 @@ test('the map preserves offline locations, plots actual report coordinates and s
     expect(mapApi.parseCoordinates('-40, -170')).toEqual({ lat: -40, lng: 190 })
     mapApi.focusIncident({ ...items[2], lng: -170 })
     expect(fakeMap.setView).toHaveBeenCalledWith([-43.95, 190], 12, { animate: false })
+    fireEvent.click(within(coverage).getByRole('button', { name: 'Australia' }))
+    fireEvent.click(states.querySelector('[data-state-code="VIC"]')!)
+    mapEvents.dragstart!()
+    mapEvents.moveend!()
+    expect(visible).toHaveBeenLastCalledWith(['VIC'])
+    mapApi.destroy()
+    container.innerHTML = mapApi.html()
+    mapApi.mount({ searchAddresses, items, order, onSelect: selected, onViewChange: visible })
+    const restoredStates = container.querySelector(
+      '[aria-label="Australian states and territories"]'
+    )!
+    expect(restoredStates).toBeVisible()
+    expect(restoredStates.querySelector('[data-state-code="VIC"]')).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(container.querySelector('#selected-area-label')).toHaveTextContent('Victoria')
+    expect(visible).toHaveBeenLastCalledWith(['VIC'])
   } finally {
     mapApi.reset()
     container.remove()
     Reflect.set(window, 'L', originalL)
+  }
+})
+
+test('clicking an approved hazard shows directions for its own point and the assessment uses the same destination', async () => {
+  render(<HazardWorkspace />)
+  await addReport()
+  await approveReport()
+  fixtures.coordinates = { latitude: -43.95312345, longitude: -176.51234567, source: 'coordinates' }
+  await openView('Overview', 'Bushfire overview')
+  await addReport()
+  await approveReport()
+  const panel = screen.getByRole('region', { name: 'Selected hazard' })
+  const google = () =>
+    new URL(
+      within(panel)
+        .getByRole('link', { name: /Directions in Google Maps/ })
+        .getAttribute('href')!
+    )
+  const apple = () =>
+    new URL(
+      within(panel)
+        .getByRole('link', { name: /Directions in Apple Maps/ })
+        .getAttribute('href')!
+    )
+  expect(google().origin).toBe('https://www.google.com')
+  expect(google().searchParams.get('api')).toBe('1')
+  expect(google().searchParams.get('destination')).toBe('-43.95312345,-176.51234567')
+  expect(google().searchParams.has('origin')).toBe(false)
+  expect(apple().origin).toBe('https://maps.apple.com')
+  expect(apple().pathname).toBe('/directions')
+  expect(apple().searchParams.get('destination')).toBe('-43.95312345,-176.51234567')
+  expect(apple().searchParams.has('source')).toBe(false)
+  expect(within(panel).getByText(/Destination:/)).toHaveTextContent('-43.953123, -176.512346')
+  for (const link of within(panel).getAllByRole('link')) {
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  }
+  fireEvent.click(screen.getByTestId('marker-HW-001'))
+  expect(google().searchParams.get('destination')).toBe('-41.28664,174.77557')
+  expect(apple().searchParams.get('destination')).toBe('-41.28664,174.77557')
+  fireEvent.click(within(panel).getByRole('button', { name: /Inspect evidence/ }))
+  await screen.findByRole('heading', { name: 'Wellington test report', level: 1 })
+  const assessmentLink = screen.getByRole('link', { name: /Directions in Google Maps/ })
+  expect(new URL(assessmentLink.getAttribute('href')!).searchParams.get('destination')).toBe(
+    '-41.28664,174.77557'
+  )
+})
+
+test('directions reject invalid coordinates and preserve valid zero coordinates', () => {
+  const rendered = render(<HazardDirections incident={{ ...testIncident, lat: 0, lng: 0 }} />)
+  expect(
+    new URL(
+      screen.getByRole('link', { name: /Google Maps/ }).getAttribute('href')!
+    ).searchParams.get('destination')
+  ).toBe('0,0')
+  for (const point of [
+    { lat: NaN, lng: 150 },
+    { lat: -33, lng: Infinity },
+    { lat: -91, lng: 150 },
+    { lat: -33, lng: 181 },
+  ]) {
+    rendered.rerender(<HazardDirections incident={{ ...testIncident, ...point }} />)
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   }
 })
