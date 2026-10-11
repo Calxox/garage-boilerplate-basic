@@ -81,6 +81,8 @@ for (const [key, value] of Object.entries(env)) {
 }
 frontendLines.push(`FIREBASE_SERVICE_ACCOUNT_KEY_BASE64=${get('FIREBASE_SERVICE_ACCOUNT_KEY_BASE64')}`)
 
+frontendLines.push(`PHOTON_API_URL=${get('PHOTON_API_URL')}`)
+
 // ── backend/.env ─────────────────────────────────────────────────────
 const backendLines = [
   header('read by the Firebase Functions CLI'),

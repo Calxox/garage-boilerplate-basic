@@ -7,8 +7,8 @@ const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   // Reduce referrer information leakage
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  // Disable browser features not used by this app
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), browsing-topics=()' },
+  // Allow device location on this origin; the browser still requires user permission
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(self), browsing-topics=()' },
 ]
 
 const nextConfig: NextConfig = {
